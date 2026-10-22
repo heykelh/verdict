@@ -1,0 +1,43 @@
+{
+  "_meta": {
+    "annee": 2026,
+    "source": "Loi de finances 2026, CIBS art. L.421-93 a L.421-167 (service-public.fr, largus.fr)",
+    "consulte_le": "2026-10-22",
+    "version": "0.1",
+    "a_verifier": [
+      "Grille CO2 : paliers 108-126 denses, puis points epars (130,140,150,170,180,191). Coller la table officielle par gramme 108-191 pour retirer les approximations.",
+      "Malus au poids : bornes de tranches a reverifier contre le texte officiel (sources divergentes).",
+      "Refaction occasion 10%/an a confirmer contre le texte en vigueur."
+    ]
+  },
+  "co2": {
+    "norme": "WLTP",
+    "seuil_gkm": 108,
+    "plafond_eur": 80000,
+    "plafond_des_gkm": 192,
+    "grille_eur_par_gkm": {
+      "108": 50, "109": 75, "110": 100, "111": 125, "112": 150,
+      "113": 170, "114": 190, "115": 210, "116": 230, "117": 240,
+      "118": 260, "119": 280, "120": 310, "121": 330, "122": 360,
+      "123": 400, "124": 450, "125": 540, "126": 650,
+      "130": 983, "140": 2205, "150": 4279, "170": 22380,
+      "180": 45990, "191": 79911
+    }
+  },
+  "poids": {
+    "seuil_kg": 1500,
+    "exonerations": ["electrique", "hydrogene"],
+    "abattement_hybride_kg": 200,
+    "tranches": [
+      {"a_partir_de_kg": 1500, "eur_par_kg": 10},
+      {"a_partir_de_kg": 1600, "eur_par_kg": 15},
+      {"a_partir_de_kg": 1700, "eur_par_kg": 20},
+      {"a_partir_de_kg": 1800, "eur_par_kg": 25},
+      {"a_partir_de_kg": 1900, "eur_par_kg": 30}
+    ]
+  },
+  "occasion": {
+    "refaction_par_an": 0.10,
+    "refaction_max": 1.0
+  }
+}

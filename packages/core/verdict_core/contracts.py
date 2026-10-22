@@ -2,7 +2,7 @@
 par le moteur, l'API et (plus tard) les types TypeScript du front."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -207,7 +207,7 @@ class Verdict(BaseModel):
 class Evaluation(BaseModel):
     id: str | None = None
     owner_id: str = "local"                 # anticipe le multi-utilisateur
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     identity: VehicleIdentity
     listing: ListingInput
     condition: ConditionAssessment | None = None

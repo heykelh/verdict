@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "version": "0.1",
+    "consulte_le": "2026-10-22",
+    "a_calibrer": [
+      "decote_km_eur_par_1000km : valeur de depart, a deriver des comparables reels (regression prix/km).",
+      "options_premiums_eur : primes de revente indicatives, a affiner par segment."
+    ]
+  },
+  "decote_km_eur_par_1000km": 45,
+  "options_premiums_eur": {
+    "toit ouvrant": 500,
+    "toit panoramique": 700,
+    "boite auto": 800,
+    "attelage": 400,
+    "cuir": 600,
+    "sieges chauffants": 150,
+    "led": 300,
+    "xenon": 200,
+    "gps": 250,
+    "camera recul": 200,
+    "pack m": 1500,
+    "pack s-line": 1200,
+    "pack amg": 1800
+  }
+}

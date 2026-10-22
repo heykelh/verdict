@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "verdict-core"
+version = "0.0.1"
+description = "Moteur d'evaluation vehicule occasion, determinism-first"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "mypy>=1.9"]
+
+[project.scripts]
+verdict = "verdict_core.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["verdict_core"]

@@ -67,12 +67,5 @@ class CarSearchRequest(BaseModel):
     year_min: int | None = None
     km_max: int | None = None
     fuel_types: list[str] | None = None
-    max_results: int = 40
+    limit: int = 10
     sources: list[str] | None = None
-
-
-class SearchResultsResponse(BaseModel):
-    count: int
-    mediane_eur: float | None
-    candidates: list[Candidate]
-    errors: dict = Field(default_factory=dict)

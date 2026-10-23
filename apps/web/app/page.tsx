@@ -63,6 +63,7 @@ export default function Home() {
   const [yearMin, setYearMin] = useState("");
   const [kmMax, setKmMax] = useState("");
   const [fuel, setFuel] = useState("");
+  const [limit, setLimit] = useState(10);
   const [srcSel, setSrcSel] = useState<string[]>(SOURCES.map((s) => s.id));
 
   function toggleSrc(id: string) {
@@ -78,7 +79,7 @@ export default function Home() {
         year_min: yearMin ? Number(yearMin) : null,
         km_max: kmMax ? Number(kmMax) : null,
         fuel_types: fuel ? [fuel] : null,
-        sources: srcSel, max_results: 40,
+        limit, sources: srcSel,
       };
       const r = await fetch(`${API}/search`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -144,6 +145,13 @@ export default function Home() {
             <option value="electrique">Electrique</option>
           </select>
         </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+          <span style={label}>Nombre d'annonces</span>
+          <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ ...input, width: 100 }}>
+            {[5, 10, 15, 20, 30, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <span style={hint}>Plus tu en demandes, plus la recherche est longue.</span>
+        </div>
         <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           {SOURCES.map((s) => (
             <label key={s.id} style={{ ...label, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
@@ -156,7 +164,6 @@ export default function Home() {
             {loading ? "Recherche..." : "Chercher"}
           </button>
         </div>
-        <div style={{ ...hint, marginTop: 10 }}>La recherche prend 30 a 60 secondes selon les sites.</div>
       </div>
 
       {err && <p style={{ color: RED, fontWeight: 700, marginTop: 8 }}>{err}</p>}
@@ -164,7 +171,7 @@ export default function Home() {
       {sRes && (
         <div>
           <div style={sectionTitle}>
-            {sRes.count} annonce{sRes.count > 1 ? "s" : ""}, de la meilleure a la moins bonne
+            Top {sRes.count}, de la meilleure a la moins bonne
           </div>
           {Object.keys(sRes.errors).length > 0 && (
             <div style={{ ...panel, borderColor: RED }}>

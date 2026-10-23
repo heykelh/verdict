@@ -60,12 +60,14 @@ def comparables(req: ComparablesRequest) -> ComparablesResponse:
 def search_cars(req: CarSearchRequest):
     import traceback
     try:
+        n = max(1, min(req.limit, 50))
         cands, errors = search_all(
             req.make, req.model, price_max=req.price_max, year_min=req.year_min,
             km_max=req.km_max, fuel_types=req.fuel_types,
-            max_results=req.max_results, sources=req.sources,
+            max_results=n, sources=req.sources,
         )
         ranked, _med = rank_candidates(cands)
+        ranked = ranked[:n]                       # les n meilleures, toutes sources
         malus = load_malus(2026)
         y = date.today().year
         for c in ranked:

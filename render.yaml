@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: djohn-api
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -e ./packages/core && pip install -e ./apps/api
+    startCommand: uvicorn verdict_api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: VERDICT_APIFY_TOKEN
+        sync: false
+      - key: VERDICT_CORS_ORIGINS
+        sync: false

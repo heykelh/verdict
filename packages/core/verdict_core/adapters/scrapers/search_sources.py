@@ -1,11 +1,12 @@
 """Recherche multi-sites allemands (mobile.de, AutoScout24, kleinanzeigen) via
 Apify, en parallele. Sortie mappee en Candidate commun, re-filtree sur les
-criteres, agregee. Classement dans engine.ranking."""
+criteres et la fraicheur, agregee. Classement dans engine.ranking."""
 from __future__ import annotations
 
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, timedelta
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -21,6 +22,9 @@ _ACTORS = {
 _FUEL = {"diesel": "diesel", "benzin": "essence", "petrol": "essence",
          "elektro": "electrique", "electric": "electrique",
          "hybrid": "hybride", "lpg": "gpl"}
+
+_DATE_KEYS = ("firstSeen", "firstSeenAt", "createdAt", "postedAt", "postedDate",
+              "listingDate", "onlineSince", "insertedAt", "creationDate", "date")
 
 
 def _num(v):
@@ -43,6 +47,37 @@ def _first(item: dict, *keys):
     for k in keys:
         if k in item and item[k] not in (None, ""):
             return item[k]
+    return None
+
+
+def _parse_date(v, today: date) -> date | None:
+    s = str(v).lower()
+    if "heute" in s or "today" in s:
+        return today
+    if "gestern" in s or "yesterday" in s:
+        return today - timedelta(days=1)
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", s)
+    if m:
+        try:
+            return date(int(m[1]), int(m[2]), int(m[3]))
+        except ValueError:
+            return None
+    m = re.search(r"(\d{2})[./](\d{2})[./](\d{4})", s)
+    if m:
+        try:
+            return date(int(m[3]), int(m[2]), int(m[1]))
+        except ValueError:
+            return None
+    return None
+
+
+def _posted_within(item: dict, days_max: int, today: date):
+    """True/False si une date est trouvee, None si inconnue (on ne jette pas)."""
+    for k in _DATE_KEYS:
+        if item.get(k):
+            d = _parse_date(item[k], today)
+            if d:
+                return (today - d).days <= days_max
     return None
 
 
@@ -87,13 +122,16 @@ def to_candidate(item: dict) -> Candidate | None:
     )
 
 
-def _payload(source, make, model, price_max, year_min, km_max, max_results):
+def _payload(source, make, model, price_max, year_min, km_max, days_max, max_results):
     base = {"proxyConfiguration": {"useApifyProxy": True}}
     if source == "mobile_de":
         p = {**base, "make": make, "model": model, "maxResults": max_results}
         if price_max: p["priceMax"] = price_max
         if year_min: p["yearMin"] = year_min
         if km_max: p["mileageMax"] = km_max
+        if days_max:
+            p["postedWithinDays"] = days_max
+            p["sort"] = "newest"
         return p
     if source == "autoscout24":
         p = {**base, "make": make, "model": model, "maxItems": max_results}
@@ -132,12 +170,16 @@ def _passes(c: Candidate, price_max, year_min, km_max, fuel_types) -> bool:
     return True
 
 
-def search_source(source, make, model, price_max=None, year_min=None,
-                  km_max=None, fuel_types=None, max_results=40) -> list[Candidate]:
+def search_source(source, make, model, price_max=None, year_min=None, km_max=None,
+                  fuel_types=None, days_max=None, max_results=40) -> list[Candidate]:
     items = _post(_ACTORS[source],
-                  _payload(source, make, model, price_max, year_min, km_max, max_results))
+                  _payload(source, make, model, price_max, year_min, km_max,
+                           days_max, max_results))
+    today = date.today()
     out: list[Candidate] = []
     for it in items:
+        if days_max and _posted_within(it, days_max, today) is False:
+            continue
         c = to_candidate(it)
         if c and _passes(c, price_max, year_min, km_max, fuel_types):
             c.source = source
@@ -146,14 +188,14 @@ def search_source(source, make, model, price_max=None, year_min=None,
 
 
 def search_all(make, model, price_max=None, year_min=None, km_max=None,
-               fuel_types=None, max_results=40,
+               fuel_types=None, days_max=None, max_results=40,
                sources=None) -> tuple[list[Candidate], dict]:
     sources = sources or list(_ACTORS)
     allc: list[Candidate] = []
     errors: dict = {}
     with ThreadPoolExecutor(max_workers=max(1, len(sources))) as ex:
         futs = {ex.submit(search_source, s, make, model, price_max, year_min,
-                          km_max, fuel_types, max_results): s for s in sources}
+                          km_max, fuel_types, days_max, max_results): s for s in sources}
         for fut in as_completed(futs):
             s = futs[fut]
             try:

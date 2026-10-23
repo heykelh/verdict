@@ -10,6 +10,7 @@ from verdict_core.adapters.scrapers import apify_mobile
 from verdict_core.adapters.scrapers.registry import gather
 from verdict_core.adapters.scrapers.search_sources import search_all
 from verdict_core.cli import run
+from verdict_core.config import settings
 from verdict_core.engine.malus import malus_co2, malus_poids, refaction_occasion
 from verdict_core.engine.ranking import rank_candidates
 from verdict_core.market_types import SearchCriteria
@@ -23,9 +24,10 @@ from .schemas import (
 
 app = FastAPI(title="VERDICT API", version="0.1")
 
+_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -61,13 +63,14 @@ def search_cars(req: CarSearchRequest):
     import traceback
     try:
         n = max(1, min(req.limit, 50))
+        pool = min(50, max(n, 20))                 # pool large -> vrai top N cross-source
         cands, errors = search_all(
             req.make, req.model, price_max=req.price_max, year_min=req.year_min,
-            km_max=req.km_max, fuel_types=req.fuel_types,
-            max_results=n, sources=req.sources,
+            km_max=req.km_max, fuel_types=req.fuel_types, days_max=req.days_max,
+            max_results=pool, sources=req.sources,
         )
         ranked, _med = rank_candidates(cands)
-        ranked = ranked[:n]                       # les n meilleures, toutes sources
+        ranked = ranked[:n]                        # les n meilleures toutes sources
         malus = load_malus(2026)
         y = date.today().year
         for c in ranked:

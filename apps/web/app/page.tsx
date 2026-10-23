@@ -10,51 +10,34 @@ const card: React.CSSProperties = {
   background: "#222", border: "1px solid #333", borderRadius: 10, padding: 20, marginBottom: 16,
 };
 const label: React.CSSProperties = { color: "#9a9a9a", fontSize: 13 };
+const input: React.CSSProperties = {
+  background: "#111", color: "#e8e8e8", border: "1px solid #333",
+  borderRadius: 8, padding: "9px 12px", fontSize: 13, boxSizing: "border-box",
+};
 const btn = (bg: string, disabled: boolean): React.CSSProperties => ({
   padding: "10px 18px", background: bg, color: "#06240f", border: "none",
   borderRadius: 8, fontWeight: 600, cursor: disabled ? "default" : "pointer",
 });
 
 export default function Home() {
-  const [input, setInput] = useState(JSON.stringify(exampleInput, null, 2));
+  const [input_, setInput] = useState(JSON.stringify(exampleInput, null, 2));
   const [res, setRes] = useState<EvaluationResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [fetching, setFetching] = useState(false);
-  const [info, setInfo] = useState<string | null>(null);
+  const [url, setUrl] = useState("");
+  const [make, setMake] = useState("BMW");
+  const [model, setModel] = useState("320");
 
-  async function evaluate() {
+  async function post(path: string, body: string) {
     setLoading(true); setErr(null); setRes(null);
     try {
-      const r = await fetch("/api/evaluate", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: input,
+      const r = await fetch(path, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body,
       });
       if (!r.ok) throw new Error("Erreur API " + r.status);
       setRes(await r.json());
     } catch (e) { setErr(e instanceof Error ? e.message : "Erreur"); }
     finally { setLoading(false); }
-  }
-
-  async function fetchComparablesDe() {
-    setFetching(true); setErr(null); setInfo(null);
-    try {
-      const data = JSON.parse(input);
-      const body = {
-        marque: data.identity.marque, modele: data.identity.modele,
-        annee: data.identity.annee, km: data.listing.km,
-        sources: ["mobile_de", "autoscout24", "kleinanzeigen"],
-      };
-      const r = await fetch("/api/comparables", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) throw new Error("Erreur API " + r.status);
-      const out = await r.json();
-      data.comparables_de = out.comparables;
-      setInput(JSON.stringify(data, null, 2));
-      setInfo(`${out.count} annonces DE recuperees et injectees.`);
-    } catch (e) { setErr(e instanceof Error ? e.message : "Erreur"); }
-    finally { setFetching(false); }
   }
 
   const v = res?.evaluation.verdict;
@@ -67,25 +50,41 @@ export default function Home() {
         Evaluation d'une occasion importee : fiabilite, cout pose en France, arbitrage.
       </p>
 
-      <textarea value={input} onChange={(e) => setInput(e.target.value)}
-        spellCheck={false} style={{
-          width: "100%", height: 220, background: "#111", color: "#cfe8d4",
-          border: "1px solid #333", borderRadius: 8, padding: 12,
-          fontFamily: "ui-monospace, monospace", fontSize: 12, boxSizing: "border-box",
-        }} />
-
-      <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "center" }}>
-        <button onClick={evaluate} disabled={loading} style={btn(loading ? "#2a4" : "#4ade80", loading)}>
-          {loading ? "Analyse..." : "Evaluer"}
-        </button>
-        <button onClick={fetchComparablesDe} disabled={fetching}
-          style={{ ...btn(fetching ? "#556" : "#60a5fa", fetching), color: "#07213f" }}>
-          {fetching ? "Recuperation..." : "Recuperer les annonces DE"}
-        </button>
+      <div style={card}>
+        <div style={{ ...label, marginBottom: 8 }}>Evaluer directement une annonce mobile.de</div>
+        <input value={url} onChange={(e) => setUrl(e.target.value)}
+          placeholder="URL de l'annonce mobile.de"
+          style={{ ...input, width: "100%", marginBottom: 8 }} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={make} onChange={(e) => setMake(e.target.value)}
+            placeholder="Marque" style={{ ...input, flex: 1 }} />
+          <input value={model} onChange={(e) => setModel(e.target.value)}
+            placeholder="Modele" style={{ ...input, flex: 1 }} />
+          <button disabled={loading || !url}
+            onClick={() => post("/api/evaluate-from-url",
+              JSON.stringify({ url, make, model }))}
+            style={btn(loading || !url ? "#556" : "#60a5fa", loading || !url)}>
+            {loading ? "Analyse..." : "Evaluer l'URL"}
+          </button>
+        </div>
+        <div style={{ ...label, marginTop: 10, fontSize: 12 }}>
+          Le premier appel peut prendre une a deux minutes (Apify demarre l'acteur).
+        </div>
       </div>
 
-      {info && <p style={{ color: "#60a5fa", marginTop: 12 }}>{info}</p>}
-      {err && <p style={{ color: "#f87171", marginTop: 12 }}>{err}</p>}
+      <div style={label}>Ou colle un JSON complet :</div>
+      <textarea value={input_} onChange={(e) => setInput(e.target.value)}
+        spellCheck={false} style={{
+          width: "100%", height: 200, background: "#111", color: "#cfe8d4",
+          border: "1px solid #333", borderRadius: 8, padding: 12, marginTop: 6,
+          fontFamily: "ui-monospace, monospace", fontSize: 12, boxSizing: "border-box",
+        }} />
+      <button onClick={() => post("/api/evaluate", input_)} disabled={loading}
+        style={{ ...btn(loading ? "#2a4" : "#4ade80", loading), marginTop: 12 }}>
+        {loading ? "Analyse..." : "Evaluer le JSON"}
+      </button>
+
+      {err && <p style={{ color: "#f87171", marginTop: 16 }}>{err}</p>}
 
       {res && v && (
         <div style={{ marginTop: 24 }}>

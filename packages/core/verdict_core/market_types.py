@@ -13,6 +13,8 @@ class Comparable(BaseModel):
     km: int
     annee: int
     motorisation: str | None = None
+    co2_gkm: int | None = None
+    masse_kg: int | None = None
     pays: Pays = Pays.de
 
 

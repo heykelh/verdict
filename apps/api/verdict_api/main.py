@@ -4,13 +4,15 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from verdict_core.adapters.scrapers import apify_mobile
 from verdict_core.adapters.scrapers.registry import gather
 from verdict_core.cli import run
 from verdict_core.market_types import SearchCriteria
 from verdict_core.repository import FileEvaluationRepository
 
 from .schemas import (
-    ComparablesRequest, ComparablesResponse, EvaluationRequest, EvaluationResponse,
+    ComparablesRequest, ComparablesResponse, EvaluateFromUrlRequest,
+    EvaluationRequest, EvaluationResponse,
 )
 
 app = FastAPI(title="VERDICT API", version="0.1")
@@ -45,6 +47,18 @@ def comparables(req: ComparablesRequest) -> ComparablesResponse:
     )
     comps = gather(crit, sources=req.sources)
     return ComparablesResponse(count=len(comps), comparables=comps)
+
+
+@app.post("/evaluate-from-url", response_model=EvaluationResponse)
+def evaluate_from_url(req: EvaluateFromUrlRequest) -> EvaluationResponse:
+    crit = SearchCriteria(marque=req.make, modele=req.model, annee=2020, km=0)
+    ic = req.import_costs.model_dump() if req.import_costs else None
+    data = apify_mobile.build_full_input(crit, target_url=req.url, import_costs=ic)
+    if not data:
+        raise HTTPException(status_code=404, detail="Annonce introuvable via Apify")
+    evaluation, fiche = run(data)
+    eid = _repo.save(evaluation)
+    return EvaluationResponse(id=eid, evaluation=evaluation, fiche=fiche)
 
 
 @app.get("/evaluation/{evaluation_id}")

@@ -51,3 +51,9 @@ class ComparablesRequest(BaseModel):
 class ComparablesResponse(BaseModel):
     count: int
     comparables: list[Comparable]
+
+class EvaluateFromUrlRequest(BaseModel):
+    url: str
+    make: str
+    model: str
+    import_costs: ImportCosts | None = None

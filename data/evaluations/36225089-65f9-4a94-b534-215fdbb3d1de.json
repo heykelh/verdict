@@ -1,0 +1,120 @@
+{
+  "id": "36225089-65f9-4a94-b534-215fdbb3d1de",
+  "owner_id": "local",
+  "created_at": "2026-10-23T18:08:23.377466Z",
+  "identity": {
+    "marque": "bmw",
+    "modele": "320d",
+    "generation": null,
+    "annee": 2020,
+    "carburant": "diesel",
+    "motorisation": "2.0 190ch",
+    "finition": null,
+    "boite": "automatique",
+    "pays_origine": "de"
+  },
+  "listing": {
+    "source": "mobile_de",
+    "url": null,
+    "prix_vendeur_eur": 18000.0,
+    "km": 100000,
+    "localisation": null,
+    "vendeur_type": "pro",
+    "options": [
+      "toit ouvrant",
+      "cuir"
+    ],
+    "flags": {
+      "unfallfrei": true,
+      "scheckheftgepflegt": true,
+      "hu_valid_until": null,
+      "tuv_fallig": false
+    },
+    "raw_text": null
+  },
+  "condition": {
+    "technique": [
+      {
+        "label": "embrayage",
+        "statut": "a_prevoir",
+        "cout_estime_eur": 1200.0
+      }
+    ],
+    "esthetique": [],
+    "administratif": []
+  },
+  "reliability": null,
+  "quotes": {
+    "theorique_eur": 22000.0,
+    "marche_fr_eur": 22000.0,
+    "marche_de_eur": 19250.0,
+    "devise": "EUR",
+    "sources": []
+  },
+  "tco": {
+    "prix_de_eur": 18000.0,
+    "malus_co2_eur": 186.0,
+    "malus_poids_eur": 600.0,
+    "import_costs": {
+      "coc_eur": 250.0,
+      "quitus_fiscal_eur": 0.0,
+      "controle_technique_fr_eur": 90.0,
+      "immatriculation_eur": 500.0,
+      "transport_eur": 800.0
+    },
+    "remise_en_etat_eur": 0.0,
+    "total_pose_fr_eur": 20426.0
+  },
+  "verdict": {
+    "valeur_estimee_exemplaire_eur": 21900.0,
+    "ecart_prix_vendeur_eur": -1250.0,
+    "arbitrage_import": {
+      "rentable": true,
+      "marge_eur": 1474.0
+    },
+    "red_flags": [],
+    "levier_negociation_eur": 1200.0,
+    "checklist": [
+      "Demarrage a froid : demarrage immediat, ralenti stable, pas de fumee anormale",
+      "Essai routier : embrayage, boite, freinage, direction, suspension",
+      "A l'arret : niveaux, traces de fuite, pneus, disques et plaquettes",
+      "Electronique : ecran, GPS, clim, radars, camera, vitres, verrouillage",
+      "Documents : factures d'entretien, carnet, controle technique, historique",
+      "Diesel : FAP et EGR, regeneration, usage anterieur (petits trajets)",
+      "Import : validite du controle technique (HU), exiger un TUV neuf au contrat",
+      "Import : carnet tampon (Scheckheft), mention sans accident (Unfallfrei)",
+      "Import : coherence du VIN entre annonce, chassis et documents"
+    ],
+    "decision": "Import interessant"
+  },
+  "lineage": [
+    {
+      "source": "Bareme malus CIBS",
+      "url": null,
+      "fetched_at": null,
+      "version": "2026",
+      "confidence": 0.8
+    },
+    {
+      "source": "Parametres valorisation",
+      "url": null,
+      "fetched_at": null,
+      "version": "0.1",
+      "confidence": 0.5
+    },
+    {
+      "source": "Cote marche DE (6 annonces)",
+      "url": null,
+      "fetched_at": null,
+      "version": null,
+      "confidence": 0.7
+    },
+    {
+      "source": "Cote marche FR (6 annonces)",
+      "url": null,
+      "fetched_at": null,
+      "version": null,
+      "confidence": 0.7
+    }
+  ]
+}

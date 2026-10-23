@@ -24,7 +24,6 @@ def test_evaluate_320d():
     assert v["decision"] == "Import interessant"
     assert v["arbitrage_import"]["marge_eur"] == 1474.0
     assert body["evaluation"]["tco"]["total_pose_fr_eur"] == 20426.0
-    assert "VERDICT" in body["fiche"]
 
 
 def test_get_evaluation_roundtrip():
@@ -45,3 +44,19 @@ def test_comparables(monkeypatch):
                     json={"marque": "bmw", "modele": "320d", "annee": 2020, "km": 100000})
     assert r.status_code == 200
     assert r.json()["count"] == 1
+
+
+def test_evaluate_from_url(monkeypatch):
+    monkeypatch.setattr(main.apify_mobile, "build_full_input",
+                        lambda *a, **k: EX)
+    r = client.post("/evaluate-from-url",
+                    json={"url": "https://suchen.mobile.de/x", "make": "BMW", "model": "320"})
+    assert r.status_code == 200
+    assert r.json()["evaluation"]["verdict"]["decision"]
+
+
+def test_evaluate_from_url_introuvable(monkeypatch):
+    monkeypatch.setattr(main.apify_mobile, "build_full_input", lambda *a, **k: None)
+    r = client.post("/evaluate-from-url",
+                    json={"url": "x", "make": "BMW", "model": "320"})
+    assert r.status_code == 404

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 # --- Enumerations ---------------------------------------------------
@@ -171,6 +171,8 @@ class TcoImport(BaseModel):
     import_costs: ImportCosts = Field(default_factory=ImportCosts)
     remise_en_etat_eur: float = 0.0
 
+    @computed_field
+    @property
     def total_pose_fr_eur(self) -> float:
         return (self.prix_de_eur + self.malus_co2_eur + self.malus_poids_eur
                 + self.import_costs.total_eur() + self.remise_en_etat_eur)

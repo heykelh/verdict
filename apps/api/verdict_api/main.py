@@ -4,10 +4,14 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from verdict_core.adapters.scrapers.registry import gather
 from verdict_core.cli import run
+from verdict_core.market_types import SearchCriteria
 from verdict_core.repository import FileEvaluationRepository
 
-from .schemas import EvaluationRequest, EvaluationResponse
+from .schemas import (
+    ComparablesRequest, ComparablesResponse, EvaluationRequest, EvaluationResponse,
+)
 
 app = FastAPI(title="VERDICT API", version="0.1")
 
@@ -31,6 +35,16 @@ def evaluate(req: EvaluationRequest) -> EvaluationResponse:
     evaluation, fiche = run(req.model_dump(mode="json"))
     eid = _repo.save(evaluation)
     return EvaluationResponse(id=eid, evaluation=evaluation, fiche=fiche)
+
+
+@app.post("/comparables", response_model=ComparablesResponse)
+def comparables(req: ComparablesRequest) -> ComparablesResponse:
+    crit = SearchCriteria(
+        marque=req.marque, modele=req.modele, annee=req.annee, km=req.km,
+        annee_tol=req.annee_tol, km_tol=req.km_tol,
+    )
+    comps = gather(crit, sources=req.sources)
+    return ComparablesResponse(count=len(comps), comparables=comps)
 
 
 @app.get("/evaluation/{evaluation_id}")

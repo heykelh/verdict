@@ -36,3 +36,18 @@ class EvaluationResponse(BaseModel):
     id: str | None
     evaluation: Evaluation
     fiche: str
+
+
+class ComparablesRequest(BaseModel):
+    marque: str
+    modele: str
+    annee: int
+    km: int
+    annee_tol: int = 1
+    km_tol: int = 20000
+    sources: list[str] | None = None
+
+
+class ComparablesResponse(BaseModel):
+    count: int
+    comparables: list[Comparable]

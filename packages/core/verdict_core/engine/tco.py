@@ -55,7 +55,7 @@ def build_tco(
 
     return TcoResult(
         tco=tco,
-        total_pose_fr_eur=round(tco.total_pose_fr_eur(), 2),
+        total_pose_fr_eur=round(tco.total_pose_fr_eur, 2),
         co2_approx=co2_res.approx,
         plafond_applique=plafond_applique,
         lignes={

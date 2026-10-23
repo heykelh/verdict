@@ -1,0 +1,99 @@
+{
+  "id": "b816005e-d684-4a75-a3ff-2d564194d4b9",
+  "owner_id": "local",
+  "created_at": "2026-10-23T20:27:29.565478Z",
+  "identity": {
+    "marque": "BMW",
+    "modele": "320",
+    "generation": null,
+    "annee": 2019,
+    "carburant": "essence",
+    "motorisation": "135 kW (184 ch)",
+    "finition": null,
+    "boite": "automatique",
+    "pays_origine": "de"
+  },
+  "listing": {
+    "source": "mobile_de",
+    "url": "https://suchen.mobile.de/auto-inserat/bmw-320i-touring-advantage-led-memory-hud-pano-acc-goslar/47167024413664.html",
+    "prix_vendeur_eur": 18950.0,
+    "km": 93200,
+    "localisation": null,
+    "vendeur_type": null,
+    "options": [],
+    "flags": {
+      "unfallfrei": true,
+      "scheckheftgepflegt": null,
+      "hu_valid_until": null,
+      "tuv_fallig": false
+    },
+    "raw_text": null
+  },
+  "condition": null,
+  "reliability": null,
+  "quotes": {
+    "theorique_eur": 22995.0,
+    "marche_fr_eur": null,
+    "marche_de_eur": 22995.0,
+    "devise": "EUR",
+    "sources": []
+  },
+  "tco": {
+    "prix_de_eur": 18950.0,
+    "malus_co2_eur": 0.0,
+    "malus_poids_eur": 231.8,
+    "import_costs": {
+      "coc_eur": 0.0,
+      "quitus_fiscal_eur": 0.0,
+      "controle_technique_fr_eur": 0.0,
+      "immatriculation_eur": 0.0,
+      "transport_eur": 0.0
+    },
+    "remise_en_etat_eur": 0.0,
+    "total_pose_fr_eur": 19181.8
+  },
+  "verdict": {
+    "valeur_estimee_exemplaire_eur": 22833.0,
+    "ecart_prix_vendeur_eur": -4045.0,
+    "arbitrage_import": {
+      "rentable": true,
+      "marge_eur": 3651.2
+    },
+    "red_flags": [],
+    "levier_negociation_eur": 0.0,
+    "checklist": [
+      "Demarrage a froid : demarrage immediat, ralenti stable, pas de fumee anormale",
+      "Essai routier : embrayage, boite, freinage, direction, suspension",
+      "A l'arret : niveaux, traces de fuite, pneus, disques et plaquettes",
+      "Electronique : ecran, GPS, clim, radars, camera, vitres, verrouillage",
+      "Documents : factures d'entretien, carnet, controle technique, historique",
+      "Import : validite du controle technique (HU), exiger un TUV neuf au contrat",
+      "Import : carnet tampon (Scheckheft), mention sans accident (Unfallfrei)",
+      "Import : coherence du VIN entre annonce, chassis et documents"
+    ],
+    "decision": "Import interessant"
+  },
+  "lineage": [
+    {
+      "source": "Bareme malus CIBS",
+      "url": null,
+      "fetched_at": null,
+      "version": "2026",
+      "confidence": 0.8
+    },
+    {
+      "source": "Parametres valorisation",
+      "url": null,
+      "fetched_at": null,
+      "version": "0.1",
+      "confidence": 0.5
+    },
+    {
+      "source": "Cote marche DE (21 annonces)",
+      "url": null,
+      "fetched_at": null,
+      "version": null,
+      "confidence": 0.7
+    }
+  ]
+}

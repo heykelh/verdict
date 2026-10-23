@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from verdict_core.contracts import (
     ConditionAssessment, Evaluation, ImportCosts, ListingInput, VehicleIdentity,
 )
-from verdict_core.market_types import Comparable
+from verdict_core.market_types import Candidate, Comparable
 
 
 class TcoRequest(BaseModel):
@@ -52,8 +52,27 @@ class ComparablesResponse(BaseModel):
     count: int
     comparables: list[Comparable]
 
+
 class EvaluateFromUrlRequest(BaseModel):
     url: str
     make: str
     model: str
     import_costs: ImportCosts | None = None
+
+
+class CarSearchRequest(BaseModel):
+    make: str
+    model: str
+    price_max: int | None = None
+    year_min: int | None = None
+    km_max: int | None = None
+    fuel_types: list[str] | None = None
+    max_results: int = 40
+    sources: list[str] | None = None
+
+
+class SearchResultsResponse(BaseModel):
+    count: int
+    mediane_eur: float | None
+    candidates: list[Candidate]
+    errors: dict = Field(default_factory=dict)

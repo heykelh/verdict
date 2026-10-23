@@ -1,6 +1,7 @@
 """Source mobile.de via acteur Apify (proxys inclus, JSON structure).
 Mappe une annonce vers Comparable, et construit une entree d'evaluation
-complete (identite + annonce + TCO pre-rempli) a partir des champs riches."""
+complete (identite + annonce + TCO pre-rempli) a partir des champs riches.
+La cible est identifiee par l'id du lien, jamais par position dans la liste."""
 from __future__ import annotations
 
 import json
@@ -64,16 +65,21 @@ def _annees_depuis(first_reg: str | None, today: date) -> float:
     return round((today - start).days / 365.25, 2)
 
 
-def run_actor(criteria: SearchCriteria, max_results: int = 50,
-              timeout: int = 300) -> list[dict]:
+def _id_from_url(url: str | None) -> str | None:
+    """Extrait l'identifiant mobile.de d'un lien d'annonce."""
+    if not url:
+        return None
+    m = re.search(r"[?&]id=(\d+)", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"/(\d+)\.html", url)
+    return m.group(1) if m else None
+
+
+def _run(payload: dict, timeout: int = 300) -> list[dict]:
     token = settings.apify_token
     if not token:
         raise ValueError("VERDICT_APIFY_TOKEN manquant dans .env")
-    payload = {
-        "make": criteria.marque, "model": criteria.modele,
-        "maxResults": max_results,
-        "proxyConfiguration": {"useApifyProxy": True},
-    }
     req = Request(f"{ENDPOINT}?token={token}",
                   data=json.dumps(payload).encode("utf-8"),
                   headers={"Content-Type": "application/json"}, method="POST")
@@ -83,6 +89,23 @@ def run_actor(criteria: SearchCriteria, max_results: int = 50,
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="ignore")[:400]
         raise RuntimeError(f"apify HTTP {e.code} : {body}") from None
+
+
+def run_actor(criteria: SearchCriteria, max_results: int = 100,
+              timeout: int = 300) -> list[dict]:
+    return _run({
+        "make": criteria.marque, "model": criteria.modele,
+        "maxResults": max_results,
+        "proxyConfiguration": {"useApifyProxy": True},
+    }, timeout)
+
+
+def run_urls(urls: list[str], max_results: int = 5, timeout: int = 300) -> list[dict]:
+    return _run({
+        "startUrls": [{"url": u} for u in urls],
+        "includeDetails": True, "maxResults": max_results,
+        "proxyConfiguration": {"useApifyProxy": True},
+    }, timeout)
 
 
 def to_comparable(item: dict) -> Comparable | None:
@@ -104,9 +127,6 @@ def to_comparable(item: dict) -> Comparable | None:
 
 def item_to_eval_input(item: dict, import_costs: dict | None = None,
                        today: date | None = None) -> dict:
-    """Construit une entree d'evaluation complete depuis une annonce Apify.
-    Auto-remplit carburant, boite, annee, poids, CO2 (si present) et pre-arme
-    les flags (HU, accident)."""
     today = today or date.today()
     fuel = str(_first(item, "fuelType", "fuel") or "").lower()
     trans = str(_first(item, "transmission", "gearbox") or "").lower()
@@ -157,24 +177,33 @@ def search(criteria: SearchCriteria, max_results: int = 50, **_kw) -> list[Compa
 
 
 def build_full_input(criteria: SearchCriteria, target_url: str | None = None,
-                     max_results: int = 50, import_costs: dict | None = None,
+                     max_results: int = 100, import_costs: dict | None = None,
                      today: date | None = None) -> dict | None:
-    """Bout en bout : recupere les annonces, choisit la cible (par URL ou la
-    1re), auto-remplit son entree d'evaluation et attache le reste en
-    comparables DE."""
-    items = run_actor(criteria, max_results=max_results)
-    if not items:
-        return None
+    """Recupere les comparables (recherche marque/modele) et la CIBLE exacte
+    (par id du lien, sinon via startUrls). Jamais la 1re annonce par defaut
+    quand une URL est fournie."""
+    search_items = run_actor(criteria, max_results=max_results)
+
     target = None
     if target_url:
-        target = next((it for it in items if (it.get("url") or "") == target_url), None)
-    target = target or items[0]
-    tid = target.get("listingId")
+        tid_url = _id_from_url(target_url)
+        if tid_url:
+            target = next((it for it in search_items
+                           if str(it.get("listingId")) == tid_url), None)
+        if target is None:
+            exact = run_urls([target_url], max_results=1)
+            target = exact[0] if exact else None
+    else:
+        target = search_items[0] if search_items else None
 
+    if target is None:
+        return None
+
+    tid = str(target.get("listingId") or "")
     data = item_to_eval_input(target, import_costs=import_costs, today=today)
     comps: list[dict] = []
-    for it in items:
-        if it.get("listingId") == tid:
+    for it in search_items:
+        if str(it.get("listingId")) == tid:
             continue
         c = to_comparable(it)
         if c:

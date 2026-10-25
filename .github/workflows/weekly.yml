@@ -2,8 +2,8 @@ name: Choix de la semaine
 
 on:
   schedule:
-    - cron: "0 6 * * 1"     # tous les lundis a 6h UTC
-  workflow_dispatch: {}       # bouton "Run workflow" pour lancer a la main
+    - cron: "0 6 */3 * *"     # tous les 3 jours a 6h UTC (~toutes les 72h)
+  workflow_dispatch: {}        # bouton "Run workflow" pour lancer a la main
 
 permissions:
   contents: write
@@ -26,5 +26,5 @@ jobs:
           git config user.name "weekly-bot"
           git config user.email "weekly-bot@users.noreply.github.com"
           git add apps/web/public/weekly.json
-          git commit -m "chore(weekly): rafraichit les choix de la semaine" || echo "rien a committer"
+          git commit -m "chore(weekly): rafraichit les meilleures annonces" || echo "rien a committer"
           git push

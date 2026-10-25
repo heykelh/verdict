@@ -1,6 +1,6 @@
 """Recherche multi-sites allemands via Apify, en parallele. Filtres min/max
-(prix, annee, km), fraicheur, carburants. Sortie mappee en Candidate commun
-avec photo, puis agregee. Classement dans engine.ranking."""
+(prix, annee, km), fraicheur, carburants. Mapping commun gerant le camelCase
+(mobile.de, AutoScout24) et le snake_case (Kleinanzeigen)."""
 from __future__ import annotations
 
 import json
@@ -24,7 +24,8 @@ _FUEL = {"diesel": "diesel", "benzin": "essence", "petrol": "essence",
          "hybrid": "hybride", "lpg": "gpl"}
 
 _DATE_KEYS = ("firstSeen", "firstSeenAt", "createdAt", "postedAt", "postedDate",
-              "listingDate", "onlineSince", "insertedAt", "creationDate", "date")
+              "posted_date", "listingDate", "onlineSince", "insertedAt",
+              "creationDate", "date")
 
 
 def _num(v):
@@ -51,10 +52,10 @@ def _first(item: dict, *keys):
 
 
 def _image(item: dict) -> str | None:
-    one = _first(item, "image", "imageUrl", "mainImageUrl", "mainImage",
+    one = _first(item, "image", "imageUrl", "image_url", "mainImageUrl", "mainImage",
                  "thumbnailUrl", "thumbnail", "imageLink", "coverImage")
     if one:
-        return one if isinstance(one, str) else one.get("url") if isinstance(one, dict) else None
+        return one if isinstance(one, str) else (one.get("url") if isinstance(one, dict) else None)
     arr = _first(item, "images", "imageUrls", "photos", "pictures", "imageList")
     if isinstance(arr, list) and arr:
         first = arr[0]
@@ -93,14 +94,19 @@ def _posted_within(item: dict, days_max: int, today: date):
 
 
 def to_candidate(item: dict) -> Candidate | None:
-    prix = _num(_first(item, "price", "priceEur", "grossPrice", "preis"))
-    km = _num(_first(item, "mileageKm", "mileage", "km", "kilometer"))
-    an = _year(_first(item, "firstRegistration", "firstRegistrationDate",
-                      "year", "registration", "erstzulassung"))
+    attrs = item.get("attributes") if isinstance(item.get("attributes"), dict) else {}
+
+    prix = _num(_first(item, "price", "price_eur", "priceEur", "grossPrice", "preis"))
+    km = _num(_first(item, "mileageKm", "mileage_km", "mileage", "km", "kilometer")
+              or attrs.get("Kilometerstand"))
+    an = _year(_first(item, "firstRegistration", "firstRegistrationDate", "year",
+                      "first_registration", "registration", "erstzulassung")
+               or attrs.get("Erstzulassung"))
     if not prix or not km or not an:
         return None
 
-    hu = str(_first(item, "huStatus", "hu", "tuv", "huValidUntil") or "").strip().lower()
+    hu = str(_first(item, "huStatus", "hu", "tuv", "huValidUntil")
+             or attrs.get("HU bis") or "").strip().lower()
     hu_ok = None
     if hu:
         if any(w in hu for w in ("fällig", "faellig", "due", "expired", "abgelaufen")):
@@ -116,7 +122,17 @@ def to_candidate(item: dict) -> Candidate | None:
             seller = s.get("type") or s.get("kind")
 
     hd = _first(item, "hasDamage", "isDamageCase", "accident")
-    fuel = str(_first(item, "fuelType", "fuel", "kraftstoff") or "").lower()
+    if not isinstance(hd, bool):
+        cond = str(_first(item, "condition") or attrs.get("Fahrzeugzustand") or "").lower()
+        if "beschädigt" in cond or "unfall" in cond:
+            hd = True
+        elif "unbeschädigt" in cond or "unfallfrei" in cond:
+            hd = False
+        else:
+            hd = None
+
+    fuel = str(_first(item, "fuelType", "fuel", "kraftstoff")
+               or attrs.get("Kraftstoffart") or "").lower()
     return Candidate(
         source="?", url=_first(item, "url", "link"),
         titre=_first(item, "title", "titre", "name"),

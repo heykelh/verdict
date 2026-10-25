@@ -38,10 +38,10 @@ class MarketStats(BaseModel):
 
 
 class Candidate(BaseModel):
-    """Une annonce candidate avec son score de bon plan et ses risques."""
     source: str
     url: str | None = None
     titre: str | None = None
+    image: str | None = None
     prix_eur: float
     km: int
     annee: int

@@ -1,5 +1,5 @@
 export interface Candidate {
-  source: string; url?: string | null; titre?: string | null;
+  source: string; url?: string | null; titre?: string | null; image?: string | null;
   prix_eur: number; km: number; annee: number; carburant?: string | null;
   puissance_kw?: number | null; price_rating?: string | null;
   has_damage?: boolean | null; hu_ok?: boolean | null;
@@ -10,5 +10,6 @@ export interface Candidate {
 }
 
 export interface SearchResults {
-  count: number; candidates: Candidate[]; errors: Record<string, string>;
+  count: number; candidates: Candidate[];
+  errors: Record<string, string>; counts?: Record<string, number>;
 }

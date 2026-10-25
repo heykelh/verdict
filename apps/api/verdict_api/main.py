@@ -1,6 +1,7 @@
 """API VERDICT : expose le moteur en HTTP. Ne calcule rien, delegue a verdict_core."""
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date
 
 from fastapi import FastAPI, HTTPException
@@ -8,7 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from verdict_core.adapters.scrapers import apify_mobile
 from verdict_core.adapters.scrapers.registry import gather
-from verdict_core.adapters.scrapers.search_sources import search_all
+from verdict_core.adapters.scrapers.search_sources import (
+    _ACTORS, _payload, _post, search_all,
+)
 from verdict_core.cli import run
 from verdict_core.config import settings
 from verdict_core.engine.malus import malus_co2, malus_poids, refaction_occasion
@@ -26,14 +29,11 @@ app = FastAPI(title="VERDICT API", version="0.1")
 
 _origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, allow_origins=_origins, allow_methods=["*"], allow_headers=["*"],
 )
 
 _repo = FileEvaluationRepository()
-_IMPORT_FEES_DEFAUT = 1640.0  # COC + quitus + CT + carte grise + transport (indicatif)
+_IMPORT_FEES_DEFAUT = 1640.0
 
 
 @app.get("/health")
@@ -62,32 +62,41 @@ def comparables(req: ComparablesRequest) -> ComparablesResponse:
 def search_cars(req: CarSearchRequest):
     import traceback
     try:
-        # getattr : resilient a une desync de schemas.py
-        days_max = getattr(req, "days_max", None)
-        limit = getattr(req, "limit", 10)
-        n = max(1, min(limit, 50))
-        pool = min(50, max(n, 20))
-        cands, errors = search_all(
-            req.make, req.model, price_max=req.price_max, year_min=req.year_min,
-            km_max=req.km_max, fuel_types=req.fuel_types, days_max=days_max,
-            max_results=pool, sources=req.sources,
-        )
+        n = max(1, min(getattr(req, "limit", 10), 50))
+        pool = min(60, max(n, 20))
+        f = {
+            "price_min": getattr(req, "price_min", None), "price_max": req.price_max,
+            "year_min": req.year_min, "year_max": getattr(req, "year_max", None),
+            "km_min": getattr(req, "km_min", None), "km_max": req.km_max,
+            "fuel_types": req.fuel_types, "days_max": getattr(req, "days_max", None),
+        }
+        cands, errors = search_all(req.make, req.model, f=f, max_results=pool,
+                                   sources=req.sources)
+        counts = dict(Counter(c.source for c in cands))
         ranked, _med = rank_candidates(cands)
         ranked = ranked[:n]
         malus = load_malus(2026)
         y = date.today().year
         for c in ranked:
             age = max(0, y - c.annee)
-            mco2 = refaction_occasion(
-                malus_co2(c.co2_gkm, malus["co2"]).montant_eur, age, malus["occasion"])
-            mpoids = refaction_occasion(
-                malus_poids(c.masse_kg, c.carburant or "", malus["poids"]), age, malus["occasion"])
+            mco2 = refaction_occasion(malus_co2(c.co2_gkm, malus["co2"]).montant_eur, age, malus["occasion"])
+            mpoids = refaction_occasion(malus_poids(c.masse_kg, c.carburant or "", malus["poids"]), age, malus["occasion"])
             c.cout_pose_estime_eur = round(c.prix_eur + mco2 + mpoids + _IMPORT_FEES_DEFAUT, 2)
-        return {"count": len(ranked),
-                "candidates": [c.model_dump() for c in ranked], "errors": errors}
+        return {"count": len(ranked), "candidates": [c.model_dump() for c in ranked],
+                "errors": errors, "counts": counts}
     except Exception as e:
-        return {"count": 0, "candidates": [],
+        return {"count": 0, "candidates": [], "counts": {},
                 "errors": {"erreur": str(e), "trace": traceback.format_exc()[-900:]}}
+
+
+@app.get("/debug/raw")
+def debug_raw(source: str = "kleinanzeigen", make: str = "BMW", model: str = "320"):
+    """Diagnostic : renvoie les premiers items bruts d'une source, pour caler le mapping."""
+    try:
+        items = _post(_ACTORS[source], _payload(source, make, model, {}, 3))
+        return {"count": len(items), "first_items": items[:2]}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.post("/evaluate-from-url", response_model=EvaluationResponse)

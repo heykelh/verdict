@@ -17,9 +17,9 @@ def test_to_candidate_commun():
 
 def test_search_all_agrege_filtre_et_tague(monkeypatch):
     monkeypatch.setattr(ss, "_post", lambda actor, payload, timeout=300: [ITEM, CHER])
-    cands, errors = ss.search_all("BMW", "320", price_max=20000,
+    cands, errors = ss.search_all("BMW", "320", f={"price_max": 20000},
                                   sources=["mobile_de", "autoscout24"])
-    assert len(cands) == 2                       # CHER (25000) filtre, 2 sources x 1
+    assert len(cands) == 2                       # CHER (25000) filtre
     assert {c.source for c in cands} == {"mobile_de", "autoscout24"}
     assert all(c.prix_eur <= 20000 for c in cands)
     assert errors == {}

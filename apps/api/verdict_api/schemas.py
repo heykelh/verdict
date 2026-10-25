@@ -63,8 +63,11 @@ class EvaluateFromUrlRequest(BaseModel):
 class CarSearchRequest(BaseModel):
     make: str
     model: str
+    price_min: int | None = None
     price_max: int | None = None
     year_min: int | None = None
+    year_max: int | None = None
+    km_min: int | None = None
     km_max: int | None = None
     fuel_types: list[str] | None = None
     days_max: int | None = None

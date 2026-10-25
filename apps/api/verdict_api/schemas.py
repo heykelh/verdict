@@ -67,5 +67,6 @@ class CarSearchRequest(BaseModel):
     year_min: int | None = None
     km_max: int | None = None
     fuel_types: list[str] | None = None
+    days_max: int | None = None
     limit: int = 10
     sources: list[str] | None = None

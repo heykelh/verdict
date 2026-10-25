@@ -62,15 +62,18 @@ def comparables(req: ComparablesRequest) -> ComparablesResponse:
 def search_cars(req: CarSearchRequest):
     import traceback
     try:
-        n = max(1, min(req.limit, 50))
-        pool = min(50, max(n, 20))                 # pool large -> vrai top N cross-source
+        # getattr : resilient a une desync de schemas.py
+        days_max = getattr(req, "days_max", None)
+        limit = getattr(req, "limit", 10)
+        n = max(1, min(limit, 50))
+        pool = min(50, max(n, 20))
         cands, errors = search_all(
             req.make, req.model, price_max=req.price_max, year_min=req.year_min,
-            km_max=req.km_max, fuel_types=req.fuel_types, days_max=req.days_max,
+            km_max=req.km_max, fuel_types=req.fuel_types, days_max=days_max,
             max_results=pool, sources=req.sources,
         )
         ranked, _med = rank_candidates(cands)
-        ranked = ranked[:n]                        # les n meilleures toutes sources
+        ranked = ranked[:n]
         malus = load_malus(2026)
         y = date.today().year
         for c in ranked:

@@ -1,0 +1,30 @@
+name: Choix de la semaine
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"     # tous les lundis a 6h UTC
+  workflow_dispatch: {}       # bouton "Run workflow" pour lancer a la main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ./packages/core
+      - name: Generer weekly.json
+        env:
+          VERDICT_APIFY_TOKEN: ${{ secrets.VERDICT_APIFY_TOKEN }}
+        run: python scripts/build_weekly.py
+      - name: Commit si changement
+        run: |
+          git config user.name "weekly-bot"
+          git config user.email "weekly-bot@users.noreply.github.com"
+          git add apps/web/public/weekly.json
+          git commit -m "chore(weekly): rafraichit les choix de la semaine" || echo "rien a committer"
+          git push

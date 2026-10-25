@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import type { Candidate, SearchResults } from "@/lib/types";
 import { VEHICLES } from "@/lib/vehicles";
-import { WEEKLY_PICKS, WeeklyPick } from "@/lib/weekly";
 
 const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
@@ -62,52 +61,50 @@ function dealBadge(c: Candidate): { t: string; col: string } {
   return { t: "Moyen", col: "#7a6a2f" };
 }
 
-function Metric({ t, v, h, color }: { t: string; v: string; h: string; color?: string }) {
+function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback: string }) {
+  const b = dealBadge(c);
   return (
-    <div style={panel}>
-      <div style={label}>{t}</div>
-      <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 22, color: color || INK }}>{v}</div>
-      <div style={hint}>{h}</div>
-    </div>
-  );
-}
-function Line({ l, v, strong }: { l: string; v: string; strong?: boolean }) {
-  return (
-    <div style={{
-      display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0",
-      borderTop: "1px solid rgba(23,20,13,0.25)",
-      fontWeight: strong ? 700 : 400, fontSize: strong ? 15 : 14, color: INK,
-      fontFamily: strong ? '"Anton", sans-serif' : '"Oswald", sans-serif',
-    }}><span>{l}</span><span style={{ whiteSpace: "nowrap" }}>{v}</span></div>
-  );
-}
-
-function PickCard({ p }: { p: WeeklyPick }) {
-  const bloc = (titre: string, items: string[], col: string) => (
-    <div style={{ marginTop: 10 }}>
-      <div style={{ ...label, color: col }}>{titre}</div>
-      {items.map((x, i) => (
-        <div key={i} style={{ fontSize: 13, marginTop: 4, lineHeight: 1.4 }}>- {x}</div>
-      ))}
-    </div>
-  );
-  return (
-    <div style={panel}>
-      <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 20, color: INK }}>{p.nom}</div>
-      <div style={{ ...label, marginTop: 2 }}>{p.sousTitre}</div>
-      <div style={{ fontSize: 13.5, marginTop: 8, lineHeight: 1.5 }}>{p.presentation}</div>
-      {bloc("Forces", p.forces, GREEN)}
-      {bloc("Faiblesses", p.faiblesses, RED)}
-      {bloc("Motorisations a privilegier", p.moteursOk, GREEN)}
-      {bloc("Motorisations a surveiller", p.moteursAttention, OCRE)}
-      <div style={{ marginTop: 10 }}>
-        <Line l="Prix a l'achat (occasion)" v="" />
-        <div style={{ fontSize: 13, marginTop: 2 }}>{p.prixAchat}</div>
-        <div style={{ fontSize: 13, marginTop: 6 }}><b>Revente :</b> {p.revente}</div>
+    <div style={{ ...panel, display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 24, color: GOLD, minWidth: 34, textShadow: "2px 2px 0 #000" }}>#{rank}</div>
+      <div style={{ flex: "1 1 200px" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{
+            fontFamily: '"Anton", sans-serif', fontSize: 13, color: "#fff",
+            background: b.col, border: `2px solid ${INK}`, padding: "2px 9px",
+            textTransform: "uppercase", letterSpacing: 0.6,
+          }}>{b.t}</span>
+          <span style={{ fontFamily: '"Anton", sans-serif', fontSize: 15, color: INK }}>{c.titre || fallback}</span>
+        </div>
+        <div style={{ ...label, marginTop: 4 }}>
+          {srcNom(c.source)} · {c.annee} · {km(c.km)} · {c.carburant || "?"}
+          {c.puissance_kw ? ` · ${c.puissance_kw} kW` : ""}
+          {c.seller_type ? ` · ${c.seller_type}` : ""}
+        </div>
+        {c.risks.length > 0 && (
+          <div style={{ marginTop: 7, display: "flex", gap: 7, flexWrap: "wrap" }}>
+            {c.risks.map((r, j) => (
+              <span key={j} style={{
+                fontSize: 11.5, color: RED, border: `1px solid ${RED}`,
+                borderRadius: 3, padding: "2px 7px", fontWeight: 600,
+              }}>{r}</span>
+            ))}
+          </div>
+        )}
       </div>
-      <div style={{ marginTop: 10, background: "#e4d9b5", border: `2px solid ${INK}`, borderRadius: 3, padding: 10 }}>
-        <span style={{ ...label, color: INK }}>Verdict</span>
-        <div style={{ fontSize: 13.5, marginTop: 4, lineHeight: 1.5 }}>{p.verdict}</div>
+      <div style={{ textAlign: "right", flex: "1 1 140px", minWidth: 140 }}>
+        <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 20, color: INK }}>{eur(c.prix_eur)}</div>
+        <div style={hint}>~{eur(c.cout_pose_estime_eur)} pose en France</div>
+        {c.ecart_marche_pct !== null && c.ecart_marche_pct !== undefined && (
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 4, color: c.ecart_marche_pct <= 0 ? GREEN : OCRE }}>
+            {c.ecart_marche_pct <= 0 ? `${Math.abs(c.ecart_marche_pct)}% sous le marche` : `${c.ecart_marche_pct}% au-dessus`}
+          </div>
+        )}
+        {c.url && (
+          <a href={c.url} target="_blank" rel="noreferrer"
+            style={{ color: BLUE, fontSize: 12.5, fontWeight: 600, display: "inline-block", marginTop: 6 }}>
+            Voir l'annonce
+          </a>
+        )}
       </div>
     </div>
   );
@@ -117,6 +114,7 @@ export default function Home() {
   const [sRes, setSRes] = useState<SearchResults | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [weekly, setWeekly] = useState<{ generated_at: string; picks: Candidate[] } | null>(null);
 
   const [make, setMake] = useState("BMW");
   const [model, setModel] = useState("320");
@@ -128,7 +126,10 @@ export default function Home() {
   const [fresh, setFresh] = useState(0);
   const [srcSel, setSrcSel] = useState<string[]>(SOURCES.map((s) => s.id));
 
-  useEffect(() => { fetch(`${API}/health`).catch(() => {}); }, []);
+  useEffect(() => {
+    fetch(`${API}/health`).catch(() => {});
+    fetch("/weekly.json").then((r) => (r.ok ? r.json() : null)).then(setWeekly).catch(() => {});
+  }, []);
 
   const toggle = (arr: string[], set: (v: string[]) => void, id: string) =>
     set(arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]);
@@ -211,7 +212,6 @@ export default function Home() {
           <input value={yearMin} onChange={(e) => setYearMin(e.target.value)} placeholder="Annee mini" style={input} />
           <input value={kmMax} onChange={(e) => setKmMax(e.target.value)} placeholder="Km maxi" style={input} />
         </div>
-
         <div style={{ marginBottom: 10 }}>
           <div style={{ ...label, marginBottom: 6 }}>Carburants (aucun coche = tous)</div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -223,7 +223,6 @@ export default function Home() {
             ))}
           </div>
         </div>
-
         <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
           <span style={label}>Nombre</span>
           <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ ...input, width: 90 }}>
@@ -241,7 +240,6 @@ export default function Home() {
         <div style={{ ...hint, marginBottom: 12 }}>
           Plus tu demandes d'annonces, plus la recherche est longue. La fraicheur s'applique surtout sur mobile.de.
         </div>
-
         <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           {SOURCES.map((s) => (
             <label key={s.id} style={{ ...label, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
@@ -256,17 +254,24 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Choix de la semaine */}
-      <details style={panel}>
+      {/* Choix de la semaine (dynamiques) */}
+      <details open style={panel}>
         <summary style={{ cursor: "pointer", fontFamily: '"Anton", sans-serif', fontSize: 18, color: INK, textTransform: "uppercase", letterSpacing: 0.6 }}>
           Les choix de la semaine
         </summary>
-        <div style={{ ...hint, margin: "8px 0 4px" }}>
-          Analyses sourcees (forces, faiblesses, moteurs a privilegier ou surveiller). Prix indicatifs.
-        </div>
-        <div style={grid(280)}>
-          {WEEKLY_PICKS.map((p, i) => <PickCard key={i} p={p} />)}
-        </div>
+        {weekly && weekly.picks.length > 0 ? (
+          <>
+            <div style={{ ...hint, margin: "8px 0 10px" }}>
+              Meilleures opportunites detectees automatiquement sur les 3 sites. Mise a jour du {weekly.generated_at}.
+            </div>
+            {weekly.picks.map((c, i) => <CandCard key={i} c={c} rank={i + 1} fallback="Annonce" />)}
+          </>
+        ) : (
+          <div style={{ ...hint, marginTop: 8 }}>
+            Les opportunites de la semaine ne sont pas encore generees. Lance le job GitHub Actions
+            une premiere fois (onglet Actions, workflow "Choix de la semaine", Run workflow).
+          </div>
+        )}
       </details>
 
       {err && <p style={{ color: RED, fontWeight: 700, marginTop: 8 }}>{err}</p>}
@@ -282,54 +287,7 @@ export default function Home() {
               ))}
             </div>
           )}
-          {sRes.candidates.map((c, i) => {
-            const b = dealBadge(c);
-            return (
-              <div key={i} style={{ ...panel, display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
-                <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 24, color: GOLD, minWidth: 34, textShadow: "2px 2px 0 #000" }}>#{i + 1}</div>
-                <div style={{ flex: "1 1 200px" }}>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{
-                      fontFamily: '"Anton", sans-serif', fontSize: 13, color: "#fff",
-                      background: b.col, border: `2px solid ${INK}`, padding: "2px 9px",
-                      textTransform: "uppercase", letterSpacing: 0.6,
-                    }}>{b.t}</span>
-                    <span style={{ fontFamily: '"Anton", sans-serif', fontSize: 15, color: INK }}>{c.titre || `${make} ${model}`}</span>
-                  </div>
-                  <div style={{ ...label, marginTop: 4 }}>
-                    {srcNom(c.source)} · {c.annee} · {km(c.km)} · {c.carburant || "?"}
-                    {c.puissance_kw ? ` · ${c.puissance_kw} kW` : ""}
-                    {c.seller_type ? ` · ${c.seller_type}` : ""}
-                  </div>
-                  {c.risks.length > 0 && (
-                    <div style={{ marginTop: 7, display: "flex", gap: 7, flexWrap: "wrap" }}>
-                      {c.risks.map((r, j) => (
-                        <span key={j} style={{
-                          fontSize: 11.5, color: RED, border: `1px solid ${RED}`,
-                          borderRadius: 3, padding: "2px 7px", fontWeight: 600,
-                        }}>{r}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div style={{ textAlign: "right", flex: "1 1 140px", minWidth: 140 }}>
-                  <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 20, color: INK }}>{eur(c.prix_eur)}</div>
-                  <div style={hint}>~{eur(c.cout_pose_estime_eur)} pose en France</div>
-                  {c.ecart_marche_pct !== null && c.ecart_marche_pct !== undefined && (
-                    <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 4, color: c.ecart_marche_pct <= 0 ? GREEN : OCRE }}>
-                      {c.ecart_marche_pct <= 0 ? `${Math.abs(c.ecart_marche_pct)}% sous le marche` : `${c.ecart_marche_pct}% au-dessus`}
-                    </div>
-                  )}
-                  {c.url && (
-                    <a href={c.url} target="_blank" rel="noreferrer"
-                      style={{ color: BLUE, fontSize: 12.5, fontWeight: 600, display: "inline-block", marginTop: 6 }}>
-                      Voir l'annonce
-                    </a>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {sRes.candidates.map((c, i) => <CandCard key={i} c={c} rank={i + 1} fallback={`${make} ${model}`} />)}
         </div>
       )}
     </main>

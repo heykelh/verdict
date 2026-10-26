@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b7d27"/>
+      <stop offset="1" stop-color="#404d13"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4cf5e"/>
+      <stop offset="1" stop-color="#d99a24"/>
+    </linearGradient>
+  </defs>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="14" fill="url(#bg)" stroke="#20270a" stroke-width="3"/>
+  <path d="M7 41 L7 38.5 C7 37 8.5 36 11 35.7 L19 34.6 C20.5 30 24.5 27.5 31 27.5 L39 27.5 C44 27.5 47 30 49.5 35 L55 36.2 C57.6 36.8 58.5 38.2 58.5 40.2 L58.5 43 C58.5 44.2 57.6 45 56.3 45 L8.7 45 C7.6 45 7 44.1 7 43 Z"
+        fill="url(#gold)" stroke="#20270a" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M23 34 C24 31 26.5 29.6 30.5 29.6 L38 29.6 C41.5 29.6 43.6 31.3 45.3 34 Z" fill="#20270a"/>
+  <circle cx="20" cy="45" r="8" fill="#20270a"/>
+  <circle cx="20" cy="45" r="3.3" fill="url(#gold)"/>
+  <circle cx="46" cy="45" r="8" fill="#20270a"/>
+  <circle cx="46" cy="45" r="3.3" fill="url(#gold)"/>
+</svg>

@@ -1,3 +1,5 @@
+import { Candidate } from "./types";
+
 export interface EngineNote {
   id: string; label: string; keywords: string[];
   avantages: string[]; defauts: string[]; vigilance: string[];
@@ -96,11 +98,46 @@ export const ENGINES: EngineNote[] = [
     vigilance: ["Bruits de chaine sur les N47, privilegier les versions recentes"],
   },
   {
+    id: "bmwpetrol", label: "Essence BMW (18i/20i/28i...)",
+    keywords: ["18i", "20i", "25i", "28i", "30i", "35i", "18 i", "20 i", "28 i"],
+    avantages: ["Moteurs essence souples et performants (N20 / B48)"],
+    defauts: ["Chaine de distribution a surveiller sur les N20 (~2011-2015)", "Pompe a eau electrique parfois fragile"],
+    vigilance: ["Historique de la chaine et de la pompe a eau", "Niveau d'huile sur certains"],
+  },
+  {
     id: "mercedescdi", label: "Diesel Mercedes CDI (OM651)",
     keywords: ["cdi", "220 d", "200 d"],
     avantages: ["Diesel costaud et sobre"],
     defauts: ["Fuites d'injecteurs et pignons de distribution sur les premieres series"],
     vigilance: ["Etat des injecteurs, historique d'entretien"],
+  },
+  {
+    id: "thp", label: "1.6 THP (PSA / Mini)",
+    keywords: ["thp"],
+    avantages: ["Essence vif et performant"],
+    defauts: ["Conso d'huile et encrassement (injection directe)", "Tendeur/chaine de distribution sur les premieres series"],
+    vigilance: ["Decalaminage, niveau d'huile, bruit de chaine a froid"],
+  },
+  {
+    id: "tdci", label: "TDCi (Ford diesel)",
+    keywords: ["tdci"],
+    avantages: ["Diesel sobre et endurant"],
+    defauts: ["FAP et vanne EGR en usage urbain", "Injecteurs sur certaines series"],
+    vigilance: ["Privilegier un usage routier, historique injecteurs"],
+  },
+  {
+    id: "crdi", label: "CRDi (Hyundai / Kia)",
+    keywords: ["crdi"],
+    avantages: ["Diesel globalement fiable, longue garantie d'origine"],
+    defauts: ["FAP/EGR en ville, volant moteur bimasse"],
+    vigilance: ["Historique entretien, usage plutot routier"],
+  },
+  {
+    id: "multijet", label: "MultiJet / JTD (Fiat)",
+    keywords: ["multijet", "jtd"],
+    avantages: ["Diesel sobre et eprouve"],
+    defauts: ["Injecteurs et FAP sur les exemplaires tres sollicites"],
+    vigilance: ["Historique injecteurs et entretien"],
   },
 ];
 

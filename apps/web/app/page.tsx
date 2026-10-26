@@ -2,6 +2,8 @@
 import { useState, useEffect } from "react";
 import type { Candidate, SearchResults } from "@/lib/types";
 import { VEHICLES } from "@/lib/vehicles";
+import { matchEngines } from "@/lib/engines";
+import { mileageFlag } from "@/lib/checks";
 
 const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
@@ -80,6 +82,8 @@ function sortCands(list: Candidate[], key: string): Candidate[] {
 
 function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback: string }) {
   const b = dealBadge(c);
+  const engs = matchEngines(c.titre || "");
+  const mf = mileageFlag(c);
   return (
     <div style={{ ...panel, display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 22, color: GOLD, minWidth: 30, textShadow: "2px 2px 0 #000" }}>#{rank}</div>
@@ -108,6 +112,26 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
             ))}
           </div>
         )}
+        {mf && (
+          <div style={{
+            marginTop: 8, fontSize: 12, lineHeight: 1.45, borderRadius: 3, padding: "6px 9px",
+            border: `1px solid ${mf.level === "warn" ? RED : INK}`,
+            background: mf.level === "warn" ? "#f3e2b8" : "#e4d9b5",
+          }}>
+            <span style={{ color: mf.level === "warn" ? RED : INK, fontWeight: 700 }}>
+              {mf.level === "warn" ? "Compteur : " : "Usure : "}
+            </span>
+            {mf.text}
+          </div>
+        )}
+        {engs.map((e) => (
+          <div key={e.id} style={{ marginTop: 8, background: "#e4d9b5", border: `1px solid ${INK}`, borderRadius: 3, padding: "6px 9px", fontSize: 12, lineHeight: 1.45 }}>
+            <div style={{ fontFamily: '"Anton", sans-serif', letterSpacing: 0.4 }}>{e.label}</div>
+            <div><span style={{ color: GREEN, fontWeight: 700 }}>Avantage :</span> {e.avantages.join(" ; ")}</div>
+            <div><span style={{ color: RED, fontWeight: 700 }}>Defaut :</span> {e.defauts.join(" ; ")}</div>
+            <div><span style={{ color: OCRE, fontWeight: 700 }}>Vigilance :</span> {e.vigilance.join(" ; ")}</div>
+          </div>
+        ))}
       </div>
       <div style={{ textAlign: "right", flex: "1 1 130px", minWidth: 130 }}>
         <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 20, color: INK }}>{eur(c.prix_eur)}</div>

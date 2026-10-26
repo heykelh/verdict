@@ -81,9 +81,13 @@ function sortCands(list: Candidate[], key: string): Candidate[] {
 }
 
 function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback: string }) {
+  const VIOLET = "#a435f0";
   const b = dealBadge(c);
   const engs = matchEngines(c.titre || "");
   const mf = mileageFlag(c);
+  const ec = c.ecart_marche_pct;
+  const maxValue = ec !== null && ec !== undefined && ec <= -35;
+  const marche = ec !== null && ec !== undefined && ec > -100 ? Math.round((c.prix_eur / (1 + ec / 100)) / 50) * 50 : null;
   return (
     <div style={{ ...panel, display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 22, color: GOLD, minWidth: 30, textShadow: "2px 2px 0 #000" }}>#{rank}</div>
@@ -92,12 +96,20 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
           style={{ width: 110, height: 82, objectFit: "cover", border: `2px solid ${INK}`, borderRadius: 3, flex: "0 0 auto" }} />
       )}
       <div style={{ flex: "1 1 180px" }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{
             fontFamily: '"Anton", sans-serif', fontSize: 13, color: "#fff",
             background: b.col, border: `2px solid ${INK}`, padding: "2px 9px",
             textTransform: "uppercase", letterSpacing: 0.6,
           }}>{b.t}</span>
+          {maxValue && (
+            <span style={{
+              fontFamily: '"Anton", sans-serif', fontSize: 13, color: "#fff",
+              background: VIOLET, border: `2px solid ${INK}`, padding: "2px 9px",
+              textTransform: "uppercase", letterSpacing: 0.8,
+              boxShadow: `0 0 10px ${VIOLET}, 0 0 14px ${VIOLET}`,
+            }}>MAX VALUE</span>
+          )}
           <span style={{ fontFamily: '"Anton", sans-serif', fontSize: 15, color: INK }}>{c.titre || fallback}</span>
         </div>
         <div style={{ ...label, marginTop: 4 }}>
@@ -127,22 +139,32 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
         {engs.map((e) => (
           <div key={e.id} style={{ marginTop: 8, background: "#e4d9b5", border: `1px solid ${INK}`, borderRadius: 3, padding: "6px 9px", fontSize: 12, lineHeight: 1.45 }}>
             <div style={{ fontFamily: '"Anton", sans-serif', letterSpacing: 0.4 }}>{e.label}</div>
-            <div><span style={{ color: GREEN, fontWeight: 700 }}>Avantage :</span> {e.avantages.join(" ; ")}</div>
-            <div><span style={{ color: RED, fontWeight: 700 }}>Defaut :</span> {e.defauts.join(" ; ")}</div>
-            <div><span style={{ color: OCRE, fontWeight: 700 }}>Vigilance :</span> {e.vigilance.join(" ; ")}</div>
+            {e.avantages.length > 0 && <div><span style={{ color: GREEN, fontWeight: 700 }}>Point fort : </span>{e.avantages.join(" ; ")}</div>}
+            {e.defauts.length > 0 && <div><span style={{ color: RED, fontWeight: 700 }}>Defaut : </span>{e.defauts.join(" ; ")}</div>}
+            {e.vigilance.length > 0 && <div><span style={{ color: OCRE, fontWeight: 700 }}>Vigilance : </span>{e.vigilance.join(" ; ")}</div>}
           </div>
         ))}
       </div>
-      <div style={{ textAlign: "right", flex: "1 1 130px", minWidth: 130 }}>
-        <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 20, color: INK }}>{eur(c.prix_eur)}</div>
-        <div style={hint}>~{eur(c.cout_pose_estime_eur)} pose en France</div>
-        {c.ecart_marche_pct !== null && c.ecart_marche_pct !== undefined && (
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 4, color: c.ecart_marche_pct <= 0 ? GREEN : OCRE }}>
-            {c.ecart_marche_pct <= 0 ? `${Math.abs(c.ecart_marche_pct)}% sous le marche` : `${c.ecart_marche_pct}% au-dessus`}
+      <div style={{ textAlign: "right", flex: "1 1 160px", minWidth: 150 }}>
+        <div style={{ ...label, fontSize: 10.5, marginBottom: 1 }}>Prix de l'annonce</div>
+        <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 20, color: INK, lineHeight: 1 }}>{eur(c.prix_eur)}</div>
+        {marche !== null && (
+          <div style={{ fontSize: 11.5, color: INK, marginTop: 6 }}>
+            Prix du marche ~{eur(marche)}
+            <div style={{ fontSize: 10, color: "#6a5a2a" }}>(mediane d'annonces similaires)</div>
           </div>
         )}
+        {ec !== null && ec !== undefined && (
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 4, color: ec <= 0 ? GREEN : OCRE }}>
+            {ec <= 0 ? `${Math.abs(Math.round(ec))} % sous le marche` : `${Math.round(ec)} % au-dessus`}
+          </div>
+        )}
+        <div style={{ fontSize: 11.5, color: INK, marginTop: 6 }}>
+          Cout estime une fois pose en France
+          <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 15, color: INK }}>~{eur(c.cout_pose_estime_eur)}</div>
+        </div>
         {c.url && (
-          <a href={c.url} target="_blank" rel="noreferrer" style={{ color: BLUE, fontSize: 12.5, fontWeight: 600, display: "inline-block", marginTop: 6 }}>Voir l'annonce</a>
+          <a href={c.url} target="_blank" rel="noreferrer" style={{ color: BLUE, fontSize: 12.5, fontWeight: 600, display: "inline-block", marginTop: 8 }}>Voir l'annonce</a>
         )}
       </div>
     </div>
@@ -288,7 +310,7 @@ export default function Home() {
 
       <details open style={panel}>
         <summary style={{ cursor: "pointer", fontFamily: '"Anton", sans-serif', fontSize: 18, color: INK, textTransform: "uppercase", letterSpacing: 0.6 }}>
-          Les choix de la semaine
+          Bons plans en ce moment (MAX VALUE ?)
         </summary>
         {weekly && weekly.picks.length > 0 ? (
           <>

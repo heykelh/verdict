@@ -5,7 +5,9 @@ export interface Candidate {
   has_damage?: boolean | null; hu_ok?: boolean | null;
   seller_type?: string | null; previous_owners?: number | null;
   co2_gkm?: number | null; masse_kg?: number | null;
-  ecart_marche_pct?: number | null; cout_pose_estime_eur?: number | null;
+  ecart_marche_pct?: number | null;
+  prix_marche_estime_eur?: number | null; 
+  cout_pose_estime_eur?: number | null;
   risks: string[]; score: number;
 }
 

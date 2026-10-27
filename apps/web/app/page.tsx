@@ -60,6 +60,12 @@ const LOAD_MSGS = [
 ];
 const srcNom = (id: string) => SOURCES.find((s) => s.id === id)?.nom || id;
 
+const keyOf = (c: Candidate) => c.url || `${c.titre}|${c.prix_eur}|${c.km}`;
+function mergeByKey(prev: Candidate[], next: Candidate[]): Candidate[] {
+  const seen = new Set(prev.map(keyOf));
+  return [...prev, ...next.filter((c) => !seen.has(keyOf(c)))];
+}
+
 function dealBadge(c: Candidate): { t: string; col: string } {
   const grave = c.risks.some((r) => /arnaque|accident/i.test(r));
   if (grave) return { t: "A eviter", col: RED };
@@ -87,7 +93,8 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
   const mf = mileageFlag(c);
   const ec = c.ecart_marche_pct;
   const maxValue = ec !== null && ec !== undefined && ec <= -35;
-  const marche = ec !== null && ec !== undefined && ec > -100 ? Math.round((c.prix_eur / (1 + ec / 100)) / 50) * 50 : null;
+  const marche = c.prix_marche_estime_eur ??
+    (ec !== null && ec !== undefined && ec > -100 ? Math.round((c.prix_eur / (1 + ec / 100)) / 50) * 50 : null);
   return (
     <div style={{ ...panel, display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 22, color: GOLD, minWidth: 30, textShadow: "2px 2px 0 #000" }}>#{rank}</div>
@@ -150,8 +157,8 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
         <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 20, color: INK, lineHeight: 1 }}>{eur(c.prix_eur)}</div>
         {marche !== null && (
           <div style={{ fontSize: 11.5, color: INK, marginTop: 6 }}>
-            Prix du marche ~{eur(marche)}
-            <div style={{ fontSize: 10, color: "#6a5a2a" }}>(mediane d'annonces similaires)</div>
+            Prix du marche estime ~{eur(marche)}
+            <div style={{ fontSize: 10, color: "#6a5a2a" }}>(ajuste a l'age et au kilometrage)</div>
           </div>
         )}
         {ec !== null && ec !== undefined && (
@@ -162,6 +169,9 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
         <div style={{ fontSize: 11.5, color: INK, marginTop: 6 }}>
           Cout estime une fois pose en France
           <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 15, color: INK }}>~{eur(c.cout_pose_estime_eur)}</div>
+          <div style={{ fontSize: 9.5, color: "#6a5a2a", lineHeight: 1.3, marginTop: 2 }}>
+            prix d'achat + frais d'import (transport, quitus fiscal, carte grise) + malus ecologique 2026 (CO2 et poids)
+          </div>
         </div>
         {c.url && (
           <a href={c.url} target="_blank" rel="noreferrer" style={{ color: BLUE, fontSize: 12.5, fontWeight: 600, display: "inline-block", marginTop: 8 }}>Voir l'annonce</a>
@@ -173,8 +183,10 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
 
 export default function Home() {
   const [sRes, setSRes] = useState<SearchResults | null>(null);
+  const [cands, setCands] = useState<Candidate[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [msgIdx, setMsgIdx] = useState(0);
   const [weekly, setWeekly] = useState<{ generated_at: string; picks: Candidate[] } | null>(null);
   const [sortKey, setSortKey] = useState("score");
@@ -207,8 +219,10 @@ export default function Home() {
     set(arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]);
   const num = (s: string) => (s ? Number(s) : null);
 
-  async function doSearch(lim = limit) {
-    setLoading(true); setErr(null); setSRes(null);
+  async function doSearch(lim = limit, mode: "new" | "more" = "new") {
+    if (mode === "new") { setLoading(true); setSRes(null); setCands([]); }
+    else { setLoadingMore(true); }
+    setErr(null);
     const body = JSON.stringify({
       make, model,
       price_min: num(budgetMin), price_max: num(budgetMax),
@@ -228,13 +242,19 @@ export default function Home() {
         const t = await r.json().catch(() => null);
         throw new Error(t?.detail || "Erreur API " + r.status);
       }
-      setErr(null); setSRes(await r.json());
+      const data: SearchResults = await r.json();
+      setErr(null);
+      setSRes(data);
+      setCands((prev) => (mode === "new" ? data.candidates : mergeByKey(prev, data.candidates)));
     } catch {
       setErr("La recherche n'a pas abouti. Le serveur gratuit met parfois 30 a 60s a se reveiller : reessaie dans un instant.");
-    } finally { setLoading(false); }
+    } finally {
+      if (mode === "new") setLoading(false); else setLoadingMore(false);
+    }
   }
 
-  const shown = sRes ? sortCands(sRes.candidates, sortKey) : [];
+  const shown = sortCands(cands, sortKey);
+  const srcCounts = cands.reduce((m, c) => { m[c.source] = (m[c.source] || 0) + 1; return m; }, {} as Record<string, number>);
 
   return (
     <main style={{ maxWidth: 880, margin: "0 auto", padding: "20px 16px" }}>
@@ -301,7 +321,7 @@ export default function Home() {
               <input type="checkbox" checked={srcSel.includes(s.id)} onChange={() => toggle(srcSel, setSrcSel, s.id)} />{s.nom}
             </label>
           ))}
-          <button onClick={() => doSearch()} disabled={loading || srcSel.length === 0}
+          <button onClick={() => doSearch(limit, "new")} disabled={loading || srcSel.length === 0}
             style={{ ...btn(GOLD, loading || srcSel.length === 0), marginLeft: "auto" }}>
             {loading ? "Recherche..." : "Chercher"}
           </button>
@@ -337,26 +357,24 @@ export default function Home() {
 
       {err && <p style={{ color: RED, fontWeight: 700, marginTop: 8 }}>{err}</p>}
 
-      {sRes && !loading && (
+      {cands.length > 0 && !loading && (
         <div>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", margin: "24px 0 6px" }}>
-            <span style={sectionTitle as React.CSSProperties}>Top {sRes.count}</span>
+            <span style={sectionTitle as React.CSSProperties}>Top {cands.length}</span>
             <span style={label}>Trier par</span>
-            <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} style={{ ...input, width: 180 }}>
+            <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} style={{ ...input, width: 190 }}>
               <option value="score">Meilleur plan</option>
               <option value="prix_asc">Prix croissant</option>
               <option value="prix_desc">Prix decroissant</option>
               <option value="km_asc">Kilometrage</option>
-              <option value="annee_desc">Annee recente</option>
+              <option value="annee_desc">Plus recentes (annee)</option>
               <option value="ecart_asc">Sous le marche</option>
             </select>
           </div>
-          {sRes.counts && (
-            <div style={{ ...hint, marginBottom: 8 }}>
-              Annonces par source : {SOURCES.map((s) => `${s.nom} ${sRes.counts?.[s.id] || 0}`).join(" · ")}
-            </div>
-          )}
-          {Object.keys(sRes.errors).length > 0 && (
+          <div style={{ ...hint, marginBottom: 8 }}>
+            Annonces par source : {SOURCES.map((s) => `${s.nom} ${srcCounts[s.id] || 0}`).join(" · ")}
+          </div>
+          {sRes && Object.keys(sRes.errors).length > 0 && (
             <div style={{ ...panel, borderColor: RED }}>
               <div style={label}>Sites indisponibles</div>
               {Object.entries(sRes.errors).map(([s, m]) => (
@@ -364,13 +382,11 @@ export default function Home() {
               ))}
             </div>
           )}
-          {shown.map((c, i) => <CandCard key={i} c={c} rank={i + 1} fallback={`${make} ${model}`} />)}
-          {shown.length > 0 && (
-            <button onClick={() => { const nl = limit + 10; setLimit(nl); doSearch(nl); }}
-              style={{ ...btn(GOLD, false), width: "100%", marginTop: 4 }}>
-              Voir 10 annonces de plus
-            </button>
-          )}
+          {shown.map((c, i) => <CandCard key={keyOf(c)} c={c} rank={i + 1} fallback={`${make} ${model}`} />)}
+          <button onClick={() => { const nl = limit + 10; setLimit(nl); doSearch(nl, "more"); }} disabled={loadingMore}
+            style={{ ...btn(GOLD, loadingMore), width: "100%", marginTop: 4 }}>
+            {loadingMore ? "Chargement..." : "Voir 10 annonces de plus"}
+          </button>
         </div>
       )}
     </main>

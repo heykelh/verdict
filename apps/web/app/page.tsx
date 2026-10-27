@@ -259,7 +259,7 @@ function Mark({ light = false }: { light?: boolean }) {
 
 function UrlForm({ url, setUrl, onSubmit, loading, inputRef, showExample }: {
   url: string; setUrl: (v: string) => void; onSubmit: (e: React.FormEvent) => void; loading: boolean;
-  inputRef?: React.RefObject<HTMLInputElement>; showExample?: boolean;
+  inputRef?: React.RefObject<HTMLInputElement | null>; showExample?: boolean;
 }) {
   return (
     <form onSubmit={onSubmit}>

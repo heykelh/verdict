@@ -36,7 +36,7 @@ const clamp = (v: number) => Math.max(0, Math.min(20, Math.round(v)));
 
 const WORDS: Record<NoteKey, [string, string, string, string]> = {
   meca: ["Fragile", "À surveiller", "Bon potentiel", "Très sain"],
-  annonce: ["Peu fiable", "À vérifier", "Complète", "Très complète"],
+  annonce: ["Peu fiable", "Incomplète", "Complète", "Très complète"],
   vendeur: ["Méfiance", "Prudence", "Plutôt rassurant", "Rassurant"],
   prix: ["Trop cher", "Dans le marché", "Intéressant", "Très intéressant"],
   revente: ["Difficile", "Incertaine", "Correcte", "Facile"],
@@ -88,7 +88,7 @@ export function bilan(c: Candidate): Bilan {
   const fields = [c.prix_eur, c.km, c.annee, c.carburant, c.puissance_kw, c.image, c.co2_gkm,
     c.masse_kg, c.hu_ok, c.seller_type, c.previous_owners, c.has_damage];
   const ratio = fields.filter(filled).length / fields.length;
-  let a = 6 + 14 * ratio;
+  let a = 18 * ratio;
   if (suspectPrix) a -= 6;
   if (mf?.level === "warn") a -= 3;
   const annonce: Note = {
@@ -140,9 +140,10 @@ export function bilan(c: Candidate): Bilan {
   };
 
   // Historique : seulement ce que dit l'annonce, plafonné sans rapport VIN.
+  // Il faut au moins deux éléments sur trois pour noter.
   const known = [c.previous_owners, c.hu_ok, c.has_damage].filter(filled).length;
   let h: number | null = null;
-  if (known > 0) {
+  if (known >= 2) {
     h = 10;
     if (filled(c.previous_owners)) {
       if ((c.previous_owners as number) <= 2) h += 3;
@@ -157,7 +158,7 @@ export function bilan(c: Candidate): Bilan {
   const historique: Note = {
     key: "historique", label: "Historique", value: h === null ? null : clamp(h), verdict: "", partial: h !== null,
     detail: h === null
-      ? "L'annonce ne donne ni propriétaires, ni contrôle technique, ni dommages."
+      ? "Trop peu d'éléments d'historique dans l'annonce (propriétaires, contrôle technique, dommages) pour noter."
       : "Basé sur l'annonce seule, sans rapport d'historique (VIN) : plafonné à 15.",
   };
 

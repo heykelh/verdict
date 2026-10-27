@@ -1,6 +1,17 @@
-export const metadata = {
-  title: "AutoVerdict",
-  description: "Evaluation d'un vehicule d'occasion importe d'Allemagne",
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "AutoVerdict, le verdict sur une voiture avant de l'acheter",
+  description:
+    "Collez le lien d'une annonce allemande : bilan noté sur 20, coût réel une fois en France, Crit'Air, défauts connus du moteur et questions à poser au vendeur.",
+  applicationName: "AutoVerdict",
+  openGraph: {
+    title: "AutoVerdict",
+    description: "Le verdict sur une voiture d'occasion, avant de l'acheter.",
+    siteName: "AutoVerdict",
+    locale: "fr_FR",
+    type: "website",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -82,6 +82,7 @@ function sortCands(list: Candidate[], key: string): Candidate[] {
     case "km_asc": return a.sort((x, y) => x.km - y.km);
     case "annee_desc": return a.sort((x, y) => y.annee - x.annee);
     case "ecart_asc": return a.sort((x, y) => (x.ecart_marche_pct ?? 0) - (y.ecart_marche_pct ?? 0));
+    case "annonce_recente": return a.sort((x, y) => (y.date_annonce || "").localeCompare(x.date_annonce || ""));
     default: return a;
   }
 }
@@ -368,6 +369,7 @@ export default function Home() {
               <option value="prix_desc">Prix decroissant</option>
               <option value="km_asc">Kilometrage</option>
               <option value="annee_desc">Plus recentes (annee)</option>
+              <option value="annonce_recente">Annonce la plus recente</option>
               <option value="ecart_asc">Sous le marche</option>
             </select>
           </div>
@@ -389,6 +391,16 @@ export default function Home() {
           </button>
         </div>
       )}
+
+            <footer style={{ marginTop: 30, paddingTop: 14, borderTop: `2px solid ${INK}`, color: "#6b6246", fontSize: 11, lineHeight: 1.5 }}>
+        DJOHN MARA GAMOS est un outil d'aide a la recherche. Scores, prix du marche, cout pose et risques sont
+        indicatifs et automatises : ils ne constituent pas un conseil en investissement et ne remplacent pas vos
+        propres verifications (essai, inspection mecanique, controle technique, historique / VIN, authenticite du
+        vendeur). L'editeur n'est pas responsable des decisions d'achat ou de revente prises a partir de l'outil.
+      </footer>
+
     </main>
+
+    
   );
 }

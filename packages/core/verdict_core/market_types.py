@@ -56,6 +56,7 @@ class Candidate(BaseModel):
     masse_kg: int | None = None
     ecart_marche_pct: float | None = None
     prix_marche_estime_eur: float | None = None
+    date_annonce: str | None = None
     cout_pose_estime_eur: float | None = None
     risks: list[str] = Field(default_factory=list)
     score: float = 0.0

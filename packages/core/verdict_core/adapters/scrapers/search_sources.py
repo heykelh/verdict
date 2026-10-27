@@ -84,13 +84,18 @@ def _parse_date(v, today: date) -> date | None:
     return None
 
 
-def _posted_within(item: dict, days_max: int, today: date):
+def _posted_date(item: dict, today: date) -> date | None:
     for k in _DATE_KEYS:
         if item.get(k):
             d = _parse_date(item[k], today)
             if d:
-                return (today - d).days <= days_max
+                return d
     return None
+
+
+def _posted_within(item: dict, days_max: int, today: date):
+    d = _posted_date(item, today)
+    return (today - d).days <= days_max if d else None
 
 
 def to_candidate(item: dict) -> Candidate | None:
@@ -217,11 +222,13 @@ def search_source(source, make, model, f: dict | None = None,
     dm = f.get("days_max")
     out: list[Candidate] = []
     for it in items:
-        if dm and _posted_within(it, dm, today) is False:
+        d = _posted_date(it, today)
+        if dm and d and (today - d).days > dm:
             continue
         c = to_candidate(it)
         if c and _passes(c, f):
             c.source = source
+            c.date_annonce = d.isoformat() if d else None
             out.append(c)
     return out
 

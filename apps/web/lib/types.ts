@@ -6,7 +6,8 @@ export interface Candidate {
   seller_type?: string | null; previous_owners?: number | null;
   co2_gkm?: number | null; masse_kg?: number | null;
   ecart_marche_pct?: number | null;
-  prix_marche_estime_eur?: number | null; 
+  prix_marche_estime_eur?: number | null;
+  date_annonce?: string | null; 
   cout_pose_estime_eur?: number | null;
   risks: string[]; score: number;
 }

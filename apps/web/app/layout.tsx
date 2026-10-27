@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "DJOHN MARA GAMOS",
+  title: "AutoVerdict",
   description: "Evaluation d'un vehicule d'occasion importe d'Allemagne",
 };
 

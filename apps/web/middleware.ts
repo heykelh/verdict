@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Ne protege pas les assets Next ni le favicon (sinon la page de login casse)
-export const config = { matcher: ["/((?!_next|favicon.ico|icon.svg).*)"] };
+// On protege UNIQUEMENT la page outil /admin ; tout le reste du site est public.
+export const config = { matcher: ["/admin/:path*"] };
 
 export function middleware(req: NextRequest) {
   const USER = process.env.BASIC_AUTH_USER || "";
   const PASS = process.env.BASIC_AUTH_PASS || "";
-  if (!USER || !PASS) return NextResponse.next(); // non configure = site ouvert
+  if (!USER || !PASS) return NextResponse.next(); // non configure = ouvert
 
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Basic ")) {
@@ -15,6 +15,6 @@ export function middleware(req: NextRequest) {
   }
   return new NextResponse("Authentification requise", {
     status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="DJOHN MARA GAMOS"' },
+    headers: { "WWW-Authenticate": 'Basic realm="Admin"' },
   });
 }

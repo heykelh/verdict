@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Candidate } from "@/lib/types";
 import { bilan } from "@/lib/scoring";
+import { enrichPrice, type PriceRef } from "@/lib/reference";
 import Report from "@/components/Report";
 
 const BRAND = "AutoVerdict";
@@ -24,6 +25,47 @@ const SAMPLE: Candidate = {
 };
 
 const nb = (s: string) => s.replace(/ ([?:;!])/g, "\u00A0$1");
+
+// Erreur d'analyse : une explication claire + le message brut complet pour le diagnostic.
+interface AnalysisError { title: string; explain: string; raw?: string }
+
+function explainError(status: number | null, detail: string, raw: string): AnalysisError {
+  const d = detail.toLowerCase();
+  if (/monthly usage hard limit|usage hard limit|platform-feature-disabled/.test(d)) {
+    return { title: "Quota de lecture des annonces épuisé", raw,
+      explain: "Le service qui lit les annonces (Apify) a atteint sa limite mensuelle. L'analyse reprendra au renouvellement du quota ou avec un forfait supérieur." };
+  }
+  if (status === null) {
+    return { title: "Serveur d'analyse injoignable", raw,
+      explain: "Le navigateur n'a pas pu joindre le serveur. Il se met en veille quand personne ne l'utilise (30 à 60 secondes pour redémarrer), il peut être hors ligne, ou ce site n'est pas autorisé à l'appeler (CORS). Réessayez dans un instant ; si ça persiste, ouvrez le message complet." };
+  }
+  if (status === 400) return { title: "Lien non reconnu", raw, explain: "Seules les annonces mobile.de, AutoScout24 et Kleinanzeigen sont prises en charge. Vérifiez que vous avez copié l'adresse complète de l'annonce." };
+  if (status === 404) return { title: "Annonce introuvable", raw, explain: "La page de l'annonce n'a pas pu être lue : elle a peut-être été supprimée ou vendue, ou le site a changé sa présentation." };
+  if (status === 422) return { title: "Annonce incomplète", raw, explain: "L'annonce a été lue, mais il manque le prix, le kilométrage ou l'année : impossible de faire le bilan." };
+  if (status === 502) return { title: "Récupération de l'annonce impossible", raw, explain: "Le service qui lit les annonces a renvoyé une erreur. Le message complet ci-dessous indique laquelle." };
+  if (status === 504 || /timeout|timed out|délai/.test(d)) return { title: "Délai dépassé", raw, explain: "La lecture de l'annonce a pris trop de temps. Réessayez dans un instant." };
+  if (status >= 500) return { title: "Erreur interne du serveur d'analyse", raw, explain: "Le serveur a rencontré un problème en traitant cette annonce. Le message complet ci-dessous aide à le corriger." };
+  return { title: `L'analyse a échoué (erreur ${status})`, raw, explain: "Le message complet ci-dessous indique la cause." };
+}
+
+function ErrorBox({ err }: { err: AnalysisError }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="lc-errbox" role="alert">
+      <strong>{nb(err.title)}</strong>
+      <p>{nb(err.explain)}</p>
+      {err.raw && (
+        <details>
+          <summary>Voir le message d'erreur complet</summary>
+          <pre>{err.raw}</pre>
+          <button type="button" onClick={() => { navigator.clipboard?.writeText(err.raw || "").then(() => setCopied(true)).catch(() => {}); }}>
+            {copied ? "Copié" : "Copier le message"}
+          </button>
+        </details>
+      )}
+    </div>
+  );
+}
 
 const FAQ: [string, string][] = [
   ["Les notes sont-elles fiables ?", "Elles appliquent des règles fixes, identiques pour toutes les annonces, à partir de ce que déclare le vendeur. Elles ne remplacent ni un essai ni une inspection : elles vous disent où regarder."],
@@ -81,6 +123,13 @@ html,body{margin:0;background:#E8E7E4}
 .lc-status{font-size:14px;color:var(--signal);margin:16px 0 0}
 .lc-status i{display:inline-block;width:8px;height:15px;background:var(--signal);vertical-align:-2px;margin-left:6px;animation:lc-blink 1s steps(1) infinite}
 .lc-err{font-size:14px;color:#FF9B8E;margin:14px 0 0;max-width:52ch}
+.lc-errbox{margin:16px 0 0;max-width:560px;border:1px solid rgba(255,140,120,.45);background:rgba(239,107,91,.1);border-radius:10px;padding:14px 16px;color:#F5D9D4;font-size:14px;line-height:1.5}
+.lc-errbox strong{display:block;color:#FFB4A8;font-size:15px;margin-bottom:4px}
+.lc-errbox p{margin:0}
+.lc-errbox summary{cursor:pointer;margin-top:10px;color:#FFB4A8;font-weight:500}
+.lc-errbox pre{margin:10px 0 0;padding:10px 12px;background:rgba(0,0,0,.35);border-radius:8px;font-family:'Cascadia Mono',monospace;font-size:12px;line-height:1.5;
+  color:#E6ECF3;white-space:pre-wrap;word-break:break-word;max-height:240px;overflow:auto}
+.lc-errbox button{margin-top:10px;height:32px;padding:0 12px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff;font:inherit;font-size:13px;cursor:pointer}
 
 .lc-cells{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(4,1fr)}
 .lc-cell{position:relative;overflow:hidden;display:grid;place-items:center;border-bottom:1px solid var(--prule)}
@@ -284,12 +333,19 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const [c, setC] = useState<Candidate | null>(null);
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<AnalysisError | null>(null);
+  const [ref, setRef] = useState<PriceRef | null>(null);
   const [open, setOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLElement>(null);
   const sample = bilan(SAMPLE);
+  // Annonce affichée, complétée par la base de prix de référence quand elle couvre le modèle.
+  const shown = useMemo(() => (c ? enrichPrice(c, ref) : null), [c, ref]);
+
+  useEffect(() => {
+    fetch("/prix-reference.json").then((r) => (r.ok ? r.json() : null)).then(setRef).catch(() => {});
+  }, []);
 
   // Défilement des photos : une case change toutes les 2,4 s.
   useEffect(() => {
@@ -319,26 +375,42 @@ export default function Home() {
     e.preventDefault();
     const u = url.trim();
     if (!/^https?:\/\/\S+$/.test(u)) {
-      setErr("Ce lien n'est pas valide. Copiez l'adresse complète de l'annonce, elle commence par https://");
+      setErr({ title: "Lien non valide", explain: "Copiez l'adresse complète de l'annonce : elle commence par https://" });
       return;
     }
     setLoading(true); setErr(null); setC(null);
+    const endpoint = `${API}/evaluate-url`;
+    const stamp = new Date().toISOString();
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 150000);
     try {
-      const r = await fetch(`${API}/evaluate-url`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u }),
+      const r = await fetch(endpoint, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: u }), signal: ctrl.signal,
       });
+      const text = await r.text();
+      let data: { detail?: unknown; candidate?: Candidate } | null = null;
+      try { data = JSON.parse(text); } catch { /* réponse non JSON */ }
       if (!r.ok) {
-        const t = await r.json().catch(() => null);
-        throw new Error(t?.detail || `L'analyse a échoué (erreur ${r.status}). Réessayez dans un instant.`);
+        const detail = data?.detail === undefined ? text : typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail, null, 2);
+        const raw = `${stamp}\nPOST ${endpoint}\nHTTP ${r.status} ${r.statusText}\nLien analysé : ${u}\n\n${detail || "(réponse vide)"}`;
+        setErr(explainError(r.status, detail || "", raw));
+        return;
       }
-      const data = await r.json();
-      setC(data.candidate || data);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "";
-      setErr(msg && msg !== "Failed to fetch" ? msg
-        : "Le serveur ne répond pas. Il se met en veille quand personne ne l'utilise : réessayez dans 30 secondes.");
-      inputRef.current?.focus();
-    } finally { setLoading(false); }
+      if (!data) {
+        setErr(explainError(500, "réponse non JSON", `${stamp}\nPOST ${endpoint}\nHTTP ${r.status}\n\n${text.slice(0, 2000)}`));
+        return;
+      }
+      setC(data.candidate || (data as unknown as Candidate));
+    } catch (ex: unknown) {
+      const aborted = ex instanceof DOMException && ex.name === "AbortError";
+      const msg = ex instanceof Error ? `${ex.name}: ${ex.message}` : String(ex);
+      const raw = `${stamp}\nPOST ${endpoint}\nLien analysé : ${u}\n\n${aborted ? "Pas de réponse au bout de 150 secondes (requête annulée)." : msg}`;
+      setErr(aborted ? explainError(504, "timeout", raw) : explainError(null, msg, raw));
+    } finally {
+      window.clearTimeout(timer);
+      setLoading(false);
+    }
   }
 
   // Deux cases photo qui changent en alternance : a aux ticks pairs, b aux ticks impairs.
@@ -373,7 +445,7 @@ export default function Home() {
               {loading
                 ? <p className="lc-status mono" aria-live="polite">lecture de l'annonce, puis calcul du bilan<i /></p>
                 : <p className="lc-small">Gratuit, sans inscription. Fonctionne avec mobile.de, AutoScout24 et Kleinanzeigen.</p>}
-              {err && <p className="lc-err" role="alert">{nb(err)}</p>}
+              {err && <ErrorBox err={err} />}
             </div>
             <div className="lc-cells" aria-hidden="true">
               {Array.from({ length: 8 }, (_, i) => {
@@ -389,17 +461,17 @@ export default function Home() {
           </div>
         </section>
 
-        {c && (
+        {shown && (
           <section className="lc-result" ref={resultRef}>
             <div className="lc-feat-h">
               <span className="n">→</span>
               <h2>Votre bilan</h2>
-              <p>{c.titre || "Votre annonce"}, analysée à l'instant.</p>
+              <p>{shown.titre || "Votre annonce"}, analysée à l'instant.</p>
             </div>
             <div className="lc-win dark">
               <div className="lc-bar"><i style={{ background: "#FF5F57" }} /><i style={{ background: "#FEBC2E" }} /><i style={{ background: "#28C840" }} /><span>bilan.autoverdict</span></div>
               <div className="lc-win-body">
-                <Report c={c} animate />
+                <Report c={shown} animate />
                 <button className="lc-btn light" style={{ marginTop: 36 }} onClick={() => { setC(null); setUrl(""); window.scrollTo({ top: 0, behavior: "smooth" }); inputRef.current?.focus(); }}>
                   Analyser une autre annonce<span className="kbd">A</span>
                 </button>
@@ -535,7 +607,10 @@ export default function Home() {
         <section className="lc-end">
           <div className="lc-end-in">
             <h2>Une annonce vous plaît&nbsp;?<br />Vérifiez-la d'abord.</h2>
-            <UrlForm url={url} setUrl={setUrl} onSubmit={analyse} loading={loading} />
+            <div>
+              <UrlForm url={url} setUrl={setUrl} onSubmit={analyse} loading={loading} />
+              {err && <ErrorBox err={err} />}
+            </div>
           </div>
         </section>
 

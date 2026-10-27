@@ -358,25 +358,31 @@ export default function Home() {
 
       {err && <p style={{ color: RED, fontWeight: 700, marginTop: 8 }}>{err}</p>}
 
-      {cands.length > 0 && !loading && (
+      {sRes && !loading && (
         <div>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", margin: "24px 0 6px" }}>
             <span style={sectionTitle as React.CSSProperties}>Top {cands.length}</span>
-            <span style={label}>Trier par</span>
-            <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} style={{ ...input, width: 190 }}>
-              <option value="score">Meilleur plan</option>
-              <option value="prix_asc">Prix croissant</option>
-              <option value="prix_desc">Prix decroissant</option>
-              <option value="km_asc">Kilometrage</option>
-              <option value="annee_desc">Plus recentes (annee)</option>
-              <option value="annonce_recente">Annonce la plus recente</option>
-              <option value="ecart_asc">Sous le marche</option>
-            </select>
+            {cands.length > 0 && (
+              <>
+                <span style={label}>Trier par</span>
+                <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} style={{ ...input, width: 190 }}>
+                  <option value="score">Meilleur plan</option>
+                  <option value="prix_asc">Prix croissant</option>
+                  <option value="prix_desc">Prix decroissant</option>
+                  <option value="km_asc">Kilometrage</option>
+                  <option value="annee_desc">Plus recentes (annee)</option>
+                  <option value="annonce_recente">Annonce la plus recente</option>
+                  <option value="ecart_asc">Sous le marche</option>
+                </select>
+              </>
+            )}
           </div>
-          <div style={{ ...hint, marginBottom: 8 }}>
-            Annonces par source : {SOURCES.map((s) => `${s.nom} ${srcCounts[s.id] || 0}`).join(" · ")}
-          </div>
-          {sRes && Object.keys(sRes.errors).length > 0 && (
+          {cands.length > 0 && (
+            <div style={{ ...hint, marginBottom: 8 }}>
+              Annonces par source : {SOURCES.map((s) => `${s.nom} ${srcCounts[s.id] || 0}`).join(" · ")}
+            </div>
+          )}
+          {Object.keys(sRes.errors).length > 0 && (
             <div style={{ ...panel, borderColor: RED }}>
               <div style={label}>Sites indisponibles</div>
               {Object.entries(sRes.errors).map(([s, m]) => (
@@ -384,11 +390,23 @@ export default function Home() {
               ))}
             </div>
           )}
-          {shown.map((c, i) => <CandCard key={keyOf(c)} c={c} rank={i + 1} fallback={`${make} ${model}`} />)}
-          <button onClick={() => { const nl = limit + 10; setLimit(nl); doSearch(nl, "more"); }} disabled={loadingMore}
-            style={{ ...btn(GOLD, loadingMore), width: "100%", marginTop: 4 }}>
-            {loadingMore ? "Chargement..." : "Voir 10 annonces de plus"}
-          </button>
+          {cands.length === 0 ? (
+            <div style={{ ...panel, textAlign: "center" }}>
+              <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 16, color: INK, marginBottom: 6 }}>Aucune annonce trouvee</div>
+              <div style={hint}>
+                Rien ne correspond a ces criteres{Object.keys(sRes.errors).length > 0 ? " (et certains sites n'ont pas repondu, voir ci-dessus)" : ""}.
+                Elargis le budget / l'annee / le kilometrage, verifie l'orthographe du modele, ou mets la fraicheur sur "Toutes", puis relance.
+              </div>
+            </div>
+          ) : (
+            <>
+              {shown.map((c, i) => <CandCard key={keyOf(c)} c={c} rank={i + 1} fallback={`${make} ${model}`} />)}
+              <button onClick={() => { const nl = limit + 10; setLimit(nl); doSearch(nl, "more"); }} disabled={loadingMore}
+                style={{ ...btn(GOLD, loadingMore), width: "100%", marginTop: 4 }}>
+                {loadingMore ? "Chargement..." : "Voir 10 annonces de plus"}
+              </button>
+            </>
+          )}
         </div>
       )}
 

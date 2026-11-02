@@ -1,7 +1,7 @@
 # PLAN DE CONSTRUCTION — Analyse d'annonce (AutoVerdict)
 
 > Traduction du cahier des exigences fonctionnelles en features concrètes, avec statut,
-> niveau (Simple/Premium) et faisabilité. Document vivant, mis à jour le 27/10/2026.
+> niveau (Simple/Premium) et faisabilité. Document vivant, mis à jour le 02/11/2026.
 
 ## Légende
 - ✅ **Fait** : en ligne ou livré.
@@ -20,7 +20,8 @@ Toujours distinguer **fait confirmé / déclaré par le vendeur / estimation / h
 | # Cahier | Feature | Niveau | Statut | Note |
 |---|---|---|---|---|
 | 1 | Saisie du lien + écran de chargement | Simple | ✅ | Accueil `/` |
-| 2 | Récupération des infos de l'annonce | Simple | ✅ | `to_candidate` via `/evaluate-url` (dépend du crédit Apify) |
+| 2 | Récupération des infos de l'annonce | Simple | ✅ | `to_candidate` via `/evaluate-url` (Apify Starter payé depuis le 02/11) |
+| 2 | Échec d'analyse expliqué (cause + message brut copiable) | Simple | ✅ | Boîte d'erreur de l'accueil (27/10) |
 | 2 | Correction / complétion par l'utilisateur | Premium | 🟡 | Voir « Mode saisie manuelle » |
 | 2.1 | Signaler infos manquantes / douteuses | Premium | ✅ partiel | Note Annonce + vigilance « informations non communiquées » |
 | 3 | Page de résultats en rubriques | Simple | ✅ | Composant `Report` |
@@ -34,12 +35,13 @@ Toujours distinguer **fait confirmé / déclaré par le vendeur / estimation / h
 | 4.2 | Adaptation à la génération / année exacte | Premium | 🟡 | Enrichir la base moteurs par génération |
 | 4.3 | Crit'Air / norme Euro / ZFE | Simple | ✅ | `critair.ts` (estimation carburant + année) |
 | 4.4 | Phase du modèle + défauts par période | Premium | 🟡 | Base par génération à construire |
-| 5.1 | Positionnement prix vs marché | Simple | 🟡 | **Priorité** : sur une annonce seule, le prix n'est pas noté aujourd'hui |
+| 5.1 | Positionnement prix vs marché | Simple | ✅ partiel | Base de prix de référence (28 modèles, cote par carburant) branchée sur l'accueil ; **à générer** (lancement manuel). Hors de ces modèles : « données insuffisantes » |
+| 5.1 | Estimation pour tous les modèles (année, km, puissance, carburant) avec fourchette | Simple | 🟡 | Voir « Modèle d'estimation de prix » |
 | 5.1 | Références Argus | Premium | 🔴 | Cote payante |
 | 5.2 | Fourchette de valeur + date de référence | Premium | 🟡 | Dépend des comparables |
 | 6.1 | Potentiel / facilité de revente | Simple | ✅ partiel | Note Revente (Crit'Air, km, âge, moteur) |
 | 6.2 | Graphique évolution marché 2-3 ans | Premium | 🔴 | **Besoin d'historique de prix = à enregistrer dès maintenant** |
-| 7.1 | Ancienneté / évolution de l'annonce | Premium | 🟡 | Date de publication remontée ; suivi dans le temps à faire |
+| 7.1 | Ancienneté / évolution de l'annonce | Premium | 🟡 | Date de publication affichée dans l'admin (02/11), lecture élargie côté serveur ; à afficher dans le bilan public ; suivi dans le temps à faire |
 | 7.2 | Cohérence équipements vs version (VIN) | Premium | 🔴 | Specs constructeur par VIN |
 | 7.3 | Incohérences kilométrage vs historique | Premium | 🔴 | Besoin historique km (TÜV / carVertical) |
 | 8 | Fiabilité vendeur : score + synthèse + signaux | Simple/Premium | 🟡 | Déterministe, pas du ML. Kleinanzeigen affiche « actif depuis » et nombre d'annonces : faisable |
@@ -69,6 +71,16 @@ Technique : formulaire côté site + petit endpoint `/evaluate-manual` pour le c
   de style d'impression dédiée (fond clair, sans menu ni animations).
 - Étape 2 (plus tard) : génération côté serveur pour un rendu identique partout et un envoi par e-mail.
 
+### Modèle d'estimation de prix (décidé le 01/11)
+Objectif : plus jamais « données insuffisantes » sur le prix, sans inventer.
+- Un seul modèle entraîné sur toutes les annonces : marque, modèle, année, km, **puissance en kW**
+  (indicateur de motorisation), carburant, boîte si disponible.
+- Repli par niveaux : modèle, puis marque, puis catégorie (citadine, compacte, SUV, berline), puis marché.
+- Résultat toujours accompagné d'une **fourchette** et d'un **niveau de fiabilité** (élevée / moyenne / faible).
+- Données : enregistrement de chaque annonce lue (analyses + admin, base Neon), jeux publics
+  d'annonces allemandes pour la forme de la décote (licence à vérifier), note de prix du site en second avis.
+- Remplace à terme `lib/reference.ts` par un appel à un endpoint `/estimate`.
+
 ### Prix sur une annonce seule
 Au moment de l'analyse, récupérer 15 à 20 annonces comparables (même marque, modèle, ±2 ans,
 ±30 000 km) pour estimer la valeur de marché et noter le prix. Coût : un run Apify de plus par
@@ -97,10 +109,14 @@ analyse ; à mettre en cache par modèle et par jour.
 
 **Phase 1 — Rapport Simple solide** ✅ (Crit'Air, conclusion, questions, checklist, notes /20).
 
+**Avant tout : phase 0 de `STRATEGIE-SAAS.md`** (sécuriser les appels à l'API, plafond Apify,
+repo privé, Vercel Pro). Rien ne doit être vendu tant qu'elle n'est pas terminée.
+
 **Phase 2 — Fiabiliser l'analyse d'un lien**
-1. Mode saisie manuelle (teste tout sans Apify, sert le Premium).
-2. Prix sur une annonce seule (comparables + cache).
-3. Scoring vendeur (ancienneté du compte, nombre d'annonces, joker de méfiance).
+1. Générer la base de prix de référence (lancement manuel) pour couvrir les 28 modèles tout de suite.
+2. Modèle d'estimation de prix pour tous les modèles (fourchette + fiabilité).
+3. Mode saisie manuelle (compléter une annonce, sert le Premium).
+4. Scoring vendeur (ancienneté du compte, nombre d'annonces, joker de méfiance).
 
 **Phase 3 — Comptes + base de données + enregistrement des analyses** (connexion Google, Neon).
 

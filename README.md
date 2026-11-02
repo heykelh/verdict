@@ -1,86 +1,130 @@
-# VERDICT
+# AutoVerdict (repo `verdict`)
 
-Outil d'evaluation de vehicules d'occasion, oriente import Allemagne vers
-France. A partir d'une annonce, VERDICT sort une decision chiffree et
-tracable : fiabilite du modele, etat de l'exemplaire, cout total pose en
-France (malus et frais d'import compris), cote marche, et arbitrage
-d'import.
+Le verdict sur une voiture d'occasion allemande, avant de l'acheter.
 
-Architecture determinism-first : le moteur calcule tout (scoring, cotes,
-malus, red flags) par des regles deterministes. Le LLM ne sert qu'a extraire
-et rediger, jamais a calculer.
+Le repo contient deux produits :
 
-## Etat actuel
+| | **AutoVerdict** | **DJOHN MARA GAMOS** |
+|---|---|---|
+| Adresse | `/` (public) | `/admin` (protégé par mot de passe) |
+| Rôle | Coller le lien d'une annonce et obtenir un bilan noté sur 20 | Scanner mobile.de, AutoScout24 et Kleinanzeigen avec filtres et classement « bon plan » |
+| Statut | Produit à commercialiser (SaaS à crédits, voir `docs/STRATEGIE-SAAS.md`) | Outil interne de l'équipe |
 
-- P0 (moteur + CLI) : termine
-- P1 (API + front interne) : termine
-- Cote marche DE en direct : operationnelle via Apify (acteur mobile.de)
-- 35 tests verts
+Principe : **déterminisme d'abord**. Les notes, le malus, le prix de marché et les risques sont
+calculés par des règles explicables. Quand une donnée manque, le bilan affiche « données
+insuffisantes » ou « non communiqué » plutôt qu'un chiffre inventé.
 
-## Ce qui fonctionne
+---
 
-- Calcul du malus ecologique 2026 (CO2 + poids) avec refaction occasion
-- Cout total pose en France (prix + malus + frais d'import + remise en etat)
-- Cote marche (mediane, quartiles, retrait des aberrants par IQR)
-- Valeur de l'exemplaire (base marche + options - etat + ajustement km)
-- Assemblage du verdict (arbitrage import, ecart au prix, levier de nego)
-- Detection de red flags deterministe (TUV fallig, prix aberrant, etc.)
-- CLI de bout en bout + fiche de tracabilite
-- API FastAPI (/evaluate, /comparables, /evaluation/{id}, /health)
-- Front Next.js (coller une annonce, verdict + tracabilite)
-- Recuperation des annonces mobile.de via Apify (JSON structure, proxys inclus)
+## Ce que fait AutoVerdict (accueil)
 
-## A venir
+- Lecture de l'annonce à partir de son lien (mobile.de, AutoScout24, Kleinanzeigen).
+- Bilan : note globale sur 20 et 7 critères (mécanique, annonce, vendeur, prix, revente, historique,
+  sécurité), points forts, points de vigilance, méthode de calcul affichée.
+- Coût réel une fois en France : prix + frais d'import + malus écologique 2026 (CO2 et poids).
+- Crit'Air estimé et zones à faibles émissions.
+- Défauts connus du moteur (19 familles) et questions à poser au vendeur.
+- Valeur de marché estimée quand le modèle figure dans la base de prix de référence.
+- En cas d'échec : cause expliquée en clair + message d'erreur complet copiable.
 
-- Branchement de la source Apify dans le registre + exploitation des champs
-  riches (co2Emissions, weightKg, huStatus, hasDamage, previousOwners)
-- Base fiabilite "maladies" curee par motorisation
-- Rappels constructeur (RappelConso + Safety Gate EU)
-- Decodage VIN (NHTSA vPIC) pour pre-remplir l'identite
-- Redaction du rapport par LLM (Groq + Gemini fallback, Langfuse)
-- Harnais d'eval (golden dataset, precision/rappel sur les red flags)
-- P2 : Supabase, multi-utilisateur, ouverture publique
+## Ce que fait DJOHN MARA GAMOS (admin)
+
+- Recherche multi-sites : marque, modèle, budget, année, km, carburants, fraîcheur, sites, nombre de résultats.
+- Classement par score « bon plan » : écart au prix de marché estimé (régression âge + km sur le lot),
+  note de prix du site, risques (accident, contrôle technique, prix anormalement bas, vendeur
+  particulier, nombreux propriétaires, kilométrage).
+- Par annonce : photo, date de publication, prix de marché estimé, coût posé en France, badge
+  MAX VALUE (35 % sous le marché), signal compteur, défauts et vigilances du moteur.
+- « Voir 10 annonces de plus » sans perdre les annonces déjà affichées.
+- Bouton **Conso Apify** : dépense du mois, projection, conseil, acteurs les plus coûteux.
+
+---
 
 ## Architecture
 
-- `packages/core` : moteur Python pur (contrats Pydantic + regles), sans I/O
-  - `verdict_core/contracts.py` : source de verite unique des donnees
-  - `verdict_core/engine/` : malus, tco, market, valuation, verdict, redflags
-  - `verdict_core/adapters/scrapers/` : sources d'annonces (Apify, HTML, registre)
-  - `verdict_core/repository.py` : abstraction stockage (fichier -> Supabase plus tard)
-- `apps/api` : FastAPI, couche fine au-dessus du moteur
-- `apps/web` : front Next.js 15 / TypeScript
-- `data/reference` : donnees de reference gouvernees et versionnees (malus, valorisation)
+```
+packages/core     moteur Python (contrats Pydantic, malus, mapping des annonces, classement)
+  verdict_core/adapters/scrapers/search_sources.py   lecture des 3 sites via Apify
+  verdict_core/engine/ranking.py                     score « bon plan » + prix de marché estimé
+apps/api          FastAPI : /health, /search, /evaluate-url, /evaluate, /comparables, /debug/raw
+apps/web          Next.js 15 / TypeScript
+  app/page.tsx                    accueil AutoVerdict
+  app/admin/page.tsx              outil DJOHN MARA GAMOS
+  app/admin/layout.tsx            ajoute le bouton Conso Apify à l'admin
+  app/admin/api/conso/route.ts    consommation Apify lue côté serveur
+  components/Report.tsx           bilan noté sur 20
+  components/ConsoApify.tsx       panneau de consommation
+  lib/scoring.ts                  notes sur 20
+  lib/reference.ts                base de prix de référence
+  lib/engines.ts, critair.ts, checks.ts, types.ts
+  middleware.ts                   mot de passe sur /admin
+scripts/build_reference.py        construit apps/web/public/prix-reference.json
+.github/workflows/reference.yml   base de prix (lancement manuel uniquement)
+docs/                             chronologie, plans, stratégie
+```
 
-## Sources de donnees
+## Hébergement
 
-- Annonces mobile.de : acteur Apify `topapi/mobile-de-listings-scraper` (JSON structure)
-- Bareme malus 2026 : encode depuis la loi de finances (CIBS), versionne
-- Rappels : RappelConso (data.economie.gouv.fr) + Safety Gate EU (a venir)
-- Decodage VIN : NHTSA vPIC (a venir)
-- Cote et etat : fournis par l'utilisateur ou derives du marche
+| Service | Rôle | Déploiement |
+|---|---|---|
+| Vercel | Site | **Automatique** à chaque push sur `main` |
+| Render | API | **Manuel** : Manual Deploy > Deploy latest commit après tout changement de `apps/api` ou `packages/core` |
+| Apify | Lecture des annonces (forfait Starter) | Acteurs : `topapi~mobile-de-listings-scraper`, `crawloop~autoscout24-scraper`, `benthepythondev~kleinanzeigen-autos-scraper` |
+| GitHub Actions | Base de prix de référence | Onglet Actions > « Base de prix de reference » > Run workflow |
 
-## Developpement (Windows / PowerShell)
+## Variables d'environnement
 
-    py -3.12 -m venv .venv
-    .\.venv\Scripts\Activate.ps1
-    pip install -e ".\packages\core[dev]"
-    pip install -e ".\apps\api[dev]"
-    pytest .\packages\core .\apps\api
+| Où | Variable | Rôle |
+|---|---|---|
+| Render | `VERDICT_APIFY_TOKEN` | Jeton Apify pour la lecture des annonces |
+| Render | `VERDICT_CORS_ORIGINS` | Domaines autorisés à appeler l'API |
+| Vercel | `NEXT_PUBLIC_API_BASE` | Adresse de l'API Render |
+| Vercel | `BASIC_AUTH_USER`, `BASIC_AUTH_PASS` | Identifiants de `/admin` |
+| Vercel | `APIFY_TOKEN` | Jeton Apify pour le bouton Conso (serveur uniquement, **jamais** préfixé `NEXT_PUBLIC_`) |
+| GitHub (secret Actions) | `VERDICT_APIFY_TOKEN` | Jeton Apify pour la base de prix |
+| `.env` local (hors Git) | `VERDICT_APIFY_TOKEN` | Développement local |
 
-Lancer l'API et le front (deux terminaux) :
+## Développement local (Windows / PowerShell)
 
-    uvicorn verdict_api.main:app --reload --port 8000
-    cd apps\web ; pnpm install ; pnpm dev
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".\packages\core[dev]"
+pip install -e ".\apps\api[dev]"
+pytest .\packages\core .\apps\api
+```
 
-## Configuration (.env a la racine, hors Git)
+Lancer l'API et le site (deux terminaux) :
 
-    VERDICT_APIFY_TOKEN=...        # recuperation mobile.de via Apify
-    VERDICT_SCRAPER_PROVIDER=...   # optionnel : scraperapi | scrapingbee
-    VERDICT_SCRAPER_API_KEY=...
+```powershell
+uvicorn verdict_api.main:app --reload --port 8000
+cd apps\web ; pnpm install ; pnpm dev
+```
 
-## Posture donnees
+## Envoyer une modification
 
-Pas de scraping direct maintenu contre les sites (anti-bot). La recuperation
-passe par Apify, qui gere les proxys. Toute donnee de reference est sourcee,
-datee, versionnee. Le LLM ne calcule jamais.
+```powershell
+git add <fichiers>
+git commit -m "message"
+git pull --rebase origin main
+git push
+```
+
+Puis, si `apps/api` ou `packages/core` a changé : Manual Deploy sur Render.
+
+## Documentation
+
+- `docs/CHRONOLOGIE.md` : journal daté de tout le projet, décisions, difficultés, coûts, état actuel.
+- `docs/PLAN-ANALYSE.md` : cahier des exigences traduit en fonctionnalités, statut de chacune, tests réels.
+- `docs/STRATEGIE-SAAS.md` : offre, architecture cible, sécurité, coûts, SEO, feuille de route.
+- `docs/STRATEGIE.md` : étude concurrentielle, packs pros, prospection, disclaimer.
+- `docs/CHANGELOG.md` : journal des débuts (22-23/10/2026), repris dans la chronologie.
+
+## Posture données
+
+La lecture des annonces passe par Apify. Pour le public, AutoVerdict analyse uniquement l'annonce
+que l'utilisateur apporte. Toute donnée de référence (malus, Crit'Air, défauts moteur) est sourcée et
+versionnée. L'IA, si elle est ajoutée, ne calculera jamais une note ou un prix.
+
+> AutoVerdict est un outil d'aide à la décision. Les notes, prix et coûts sont indicatifs et ne
+> remplacent pas un essai, une inspection ni la vérification de l'historique du véhicule.

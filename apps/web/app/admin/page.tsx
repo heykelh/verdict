@@ -60,6 +60,17 @@ const LOAD_MSGS = [
 ];
 const srcNom = (id: string) => SOURCES.find((s) => s.id === id)?.nom || id;
 
+// Date de publication de l'annonce sur le site, avec l'ancienneté en jours.
+function datePub(c: Candidate): string {
+  if (!c.date_annonce) return `Date de publication non communiquee par ${srcNom(c.source)}`;
+  const d = new Date(c.date_annonce + "T00:00:00");
+  if (isNaN(d.getTime())) return `Date de publication non communiquee par ${srcNom(c.source)}`;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const n = Math.round((today.getTime() - d.getTime()) / 86400000);
+  const quand = n <= 0 ? "aujourd'hui" : n === 1 ? "hier" : `il y a ${n} jours`;
+  return `Publiee le ${d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} (${quand})`;
+}
+
 const keyOf = (c: Candidate) => c.url || `${c.titre}|${c.prix_eur}|${c.km}`;
 function mergeByKey(prev: Candidate[], next: Candidate[]): Candidate[] {
   const seen = new Set(prev.map(keyOf));
@@ -125,6 +136,9 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
           {c.puissance_kw ? ` · ${c.puissance_kw} kW` : ""}
           {c.seller_type ? ` · ${c.seller_type}` : ""}
         </div>
+        <div style={{ fontSize: 12, marginTop: 3, color: c.date_annonce ? INK : "#8a7f5c", fontStyle: c.date_annonce ? "normal" : "italic" }}>
+          {datePub(c)}
+        </div>
         {c.risks.length > 0 && (
           <div style={{ marginTop: 7, display: "flex", gap: 7, flexWrap: "wrap" }}>
             {c.risks.map((r, j) => (
@@ -189,7 +203,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [msgIdx, setMsgIdx] = useState(0);
-  const [weekly, setWeekly] = useState<{ generated_at: string; picks: Candidate[] } | null>(null);
+  const [moreErr, setMoreErr] = useState<string | null>(null);
+  const [moreInfo, setMoreInfo] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState("score");
 
   const [make, setMake] = useState("BMW");
@@ -207,7 +222,6 @@ export default function Home() {
 
   useEffect(() => {
     fetch(`${API}/health`).catch(() => {});
-    fetch("/weekly.json").then((r) => (r.ok ? r.json() : null)).then(setWeekly).catch(() => {});
   }, []);
   useEffect(() => {
     if (!loading) return;
@@ -221,9 +235,9 @@ export default function Home() {
   const num = (s: string) => (s ? Number(s) : null);
 
   async function doSearch(lim = limit, mode: "new" | "more" = "new") {
-    if (mode === "new") { setLoading(true); setSRes(null); setCands([]); }
+    if (mode === "new") { setLoading(true); setSRes(null); setCands([]); setErr(null); }
     else { setLoadingMore(true); }
-    setErr(null);
+    setMoreErr(null); setMoreInfo(null);
     const body = JSON.stringify({
       make, model,
       price_min: num(budgetMin), price_max: num(budgetMax),
@@ -244,11 +258,29 @@ export default function Home() {
         throw new Error(t?.detail || "Erreur API " + r.status);
       }
       const data: SearchResults = await r.json();
-      setErr(null);
-      setSRes(data);
-      setCands((prev) => (mode === "new" ? data.candidates : mergeByKey(prev, data.candidates)));
-    } catch {
-      setErr("La recherche n'a pas abouti. Le serveur gratuit met parfois 30 a 60s a se reveiller : reessaie dans un instant.");
+      if (mode === "new") {
+        setErr(null);
+        setSRes(data);
+        setCands(data.candidates);
+      } else {
+        // On garde toutes les annonces deja affichees et on ajoute seulement les nouvelles, a la suite.
+        setSRes((prev) => (prev ? { ...data, candidates: prev.candidates } : data));
+        setCands((prev) => {
+          const merged = mergeByKey(prev, data.candidates);
+          const added = merged.length - prev.length;
+          setMoreInfo(added > 0
+            ? `+${added} nouvelle${added > 1 ? "s" : ""} annonce${added > 1 ? "s" : ""} ajoutee${added > 1 ? "s" : ""} en bas de la liste.`
+            : "Aucune nouvelle annonce : les sites n'ont pas renvoye plus de resultats pour ces criteres.");
+          return merged;
+        });
+      }
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      if (mode === "new") {
+        setErr(`La recherche n'a pas abouti (${detail}). Le serveur gratuit met parfois 30 a 60s a se reveiller : reessaie dans un instant.`);
+      } else {
+        setMoreErr(`Les annonces supplementaires n'ont pas pu etre chargees (${detail}). Les annonces deja trouvees restent affichees.`);
+      }
     } finally {
       if (mode === "new") setLoading(false); else setLoadingMore(false);
     }
@@ -329,22 +361,6 @@ export default function Home() {
         </div>
       </div>
 
-      <details open style={panel}>
-        <summary style={{ cursor: "pointer", fontFamily: '"Anton", sans-serif', fontSize: 18, color: INK, textTransform: "uppercase", letterSpacing: 0.6 }}>
-          Bons plans en ce moment (MAX VALUE ?)
-        </summary>
-        {weekly && weekly.picks.length > 0 ? (
-          <>
-            <div style={{ ...hint, margin: "8px 0 10px" }}>
-              Meilleures opportunites detectees automatiquement sur les 3 sites. Mise a jour du {weekly.generated_at}.
-            </div>
-            {weekly.picks.map((c, i) => <CandCard key={i} c={c} rank={i + 1} fallback="Annonce" />)}
-          </>
-        ) : (
-          <div style={{ ...hint, marginTop: 8 }}>Pas encore generees. Lance le workflow "Choix de la semaine" sur GitHub Actions.</div>
-        )}
-      </details>
-
       {/* Loader pendant la recherche */}
       {loading && (
         <div style={{ ...panel, textAlign: "center" }}>
@@ -401,6 +417,17 @@ export default function Home() {
           ) : (
             <>
               {shown.map((c, i) => <CandCard key={keyOf(c)} c={c} rank={i + 1} fallback={`${make} ${model}`} />)}
+              {loadingMore && (
+                <div style={{ ...panel, textAlign: "center" }}>
+                  <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 14, color: INK, marginBottom: 8 }}>Recherche de 10 annonces de plus...</div>
+                  <div style={{ position: "relative", height: 8, background: "#d8cba0", border: `2px solid ${INK}`, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ position: "absolute", top: 0, bottom: 0, width: "45%", background: GOLD, animation: "dmg-slide 1.2s linear infinite" }} />
+                  </div>
+                  <div style={{ ...hint, marginTop: 6 }}>Les annonces deja trouvees restent affichees.</div>
+                </div>
+              )}
+              {moreInfo && !loadingMore && <div style={{ ...hint, margin: "0 0 8px", fontWeight: 600 }}>{moreInfo}</div>}
+              {moreErr && !loadingMore && <p style={{ color: RED, fontWeight: 700, margin: "0 0 8px" }}>{moreErr}</p>}
               <button onClick={() => { const nl = limit + 10; setLimit(nl); doSearch(nl, "more"); }} disabled={loadingMore}
                 style={{ ...btn(GOLD, loadingMore), width: "100%", marginTop: 4 }}>
                 {loadingMore ? "Chargement..." : "Voir 10 annonces de plus"}
@@ -410,7 +437,7 @@ export default function Home() {
         </div>
       )}
 
-            <footer style={{ marginTop: 30, paddingTop: 14, borderTop: `2px solid ${INK}`, color: "#6b6246", fontSize: 11, lineHeight: 1.5 }}>
+      <footer style={{ marginTop: 30, paddingTop: 14, borderTop: `2px solid ${INK}`, color: "#6b6246", fontSize: 11, lineHeight: 1.5 }}>
         DJOHN MARA GAMOS est un outil d'aide a la recherche. Scores, prix du marche, cout pose et risques sont
         indicatifs et automatises : ils ne constituent pas un conseil en investissement et ne remplacent pas vos
         propres verifications (essai, inspection mecanique, controle technique, historique / VIN, authenticite du
@@ -418,7 +445,5 @@ export default function Home() {
       </footer>
 
     </main>
-
-    
   );
 }

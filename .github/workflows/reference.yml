@@ -1,9 +1,7 @@
 name: Base de prix de reference
 
-# Le 1er de chaque mois a 5 h (UTC), et a la demande depuis l'onglet Actions.
+# Lancement manuel uniquement (onglet Actions > Run workflow), pour maitriser la consommation Apify.
 on:
-  schedule:
-    - cron: "0 5 1 * *"
   workflow_dispatch:
 
 permissions:

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -23,9 +23,22 @@ _FUEL = {"diesel": "diesel", "benzin": "essence", "petrol": "essence",
          "elektro": "electrique", "electric": "electrique",
          "hybrid": "hybride", "lpg": "gpl"}
 
-_DATE_KEYS = ("firstSeen", "firstSeenAt", "createdAt", "postedAt", "postedDate",
-              "posted_date", "listingDate", "onlineSince", "insertedAt",
-              "creationDate", "date")
+# Date de publication de l'annonce : noms de champs connus, du plus fiable au plus vague.
+_DATE_KEYS = ("createdAt", "created_at", "creationDate", "creation_date", "createdDate",
+              "createdTimestamp", "creationTime", "publishedAt", "published_at",
+              "publicationDate", "publishDate", "datePublished", "postedAt", "posted_at",
+              "postedDate", "posted_date", "postedOn", "datePosted", "onlineSince",
+              "online_since", "listedAt", "listingDate", "listing_date", "insertedAt",
+              "insertionDate", "adCreationDate", "startDate", "firstSeen", "firstSeenAt",
+              "date")
+# Mots qui signalent une date de publication dans un nom de champ inconnu...
+_DATE_HINTS = ("creat", "publi", "posted", "online", "listed", "inserted", "firstseen")
+# ...et ceux qui signalent une autre date (immatriculation, contrôle technique, mise à jour).
+_DATE_EXCLUDE = ("registration", "erstzulassung", "zulassung", "hu", "tuv", "tüv",
+                 "inspection", "valid", "update", "modif", "change", "build", "production",
+                 "expire", "end")
+# Champs imbriqués où certains acteurs rangent la date.
+_NESTED = ("meta", "metadata", "listing", "ad", "details", "data")
 
 
 def _num(v):
@@ -64,11 +77,32 @@ def _image(item: dict) -> str | None:
 
 
 def _parse_date(v, today: date) -> date | None:
-    s = str(v).lower()
+    # Horodatage Unix en secondes ou en millisecondes.
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        ts = float(v)
+        if ts > 1e12:
+            ts /= 1000
+        if 1e9 < ts < 1e10:
+            return datetime.fromtimestamp(ts, tz=timezone.utc).date()
+        return None
+    s = str(v).strip().lower()
+    if re.fullmatch(r"\d{10}|\d{13}", s):
+        return _parse_date(int(s), today)
     if "heute" in s or "today" in s:
         return today
     if "gestern" in s or "yesterday" in s:
         return today - timedelta(days=1)
+    m = re.search(r"vor\s+(\d+)\s+(minute|stunde|tag|woche|monat)", s) or \
+        re.search(r"(\d+)\s+(minute|hour|day|week|month)s?\s+ago", s)
+    if m:
+        n, unit = int(m[1]), m[2]
+        if unit.startswith(("minute", "stunde", "hour")):
+            return today
+        if unit.startswith(("tag", "day")):
+            return today - timedelta(days=n)
+        if unit.startswith(("woche", "week")):
+            return today - timedelta(weeks=n)
+        return today - timedelta(days=30 * n)
     m = re.search(r"(\d{4})-(\d{2})-(\d{2})", s)
     if m:
         try:
@@ -84,10 +118,39 @@ def _parse_date(v, today: date) -> date | None:
     return None
 
 
-def _posted_date(item: dict, today: date) -> date | None:
+def _plausible(d: date | None, today: date) -> date | None:
+    # Une annonce en ligne a été publiée il y a moins de 3 ans, et pas dans le futur.
+    if d and today - timedelta(days=3 * 365) <= d <= today + timedelta(days=1):
+        return d
+    return None
+
+
+def _date_in(item: dict, today: date) -> date | None:
     for k in _DATE_KEYS:
-        if item.get(k):
-            d = _parse_date(item[k], today)
+        if item.get(k) not in (None, ""):
+            d = _plausible(_parse_date(item[k], today), today)
+            if d:
+                return d
+    # Champ au nom inconnu mais explicite (ex. "adCreatedOn"), hors dates d'immatriculation ou de CT.
+    for k, v in item.items():
+        kl = str(k).lower()
+        if v in (None, "") or isinstance(v, (dict, list)):
+            continue
+        if any(h in kl for h in _DATE_HINTS) and not any(x in kl for x in _DATE_EXCLUDE):
+            d = _plausible(_parse_date(v, today), today)
+            if d:
+                return d
+    return None
+
+
+def _posted_date(item: dict, today: date) -> date | None:
+    d = _date_in(item, today)
+    if d:
+        return d
+    for k in _NESTED:
+        sub = item.get(k)
+        if isinstance(sub, dict):
+            d = _date_in(sub, today)
             if d:
                 return d
     return None

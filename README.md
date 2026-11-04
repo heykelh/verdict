@@ -30,11 +30,13 @@ insuffisantes » ou « non communiqué » plutôt qu'un chiffre inventé.
 ## Ce que fait DJOHN MARA GAMOS (admin)
 
 - Recherche multi-sites : marque, modèle, budget, année, km, carburants, fraîcheur, sites, nombre de résultats.
-- Classement par score « bon plan » : écart au prix de marché estimé (régression âge + km sur le lot),
-  note de prix du site, risques (accident, contrôle technique, prix anormalement bas, vendeur
-  particulier, nombreux propriétaires, kilométrage).
-- Par annonce : photo, date de publication, prix de marché estimé, coût posé en France, badge
-  MAX VALUE (35 % sous le marché), signal compteur, défauts et vigilances du moteur.
+- Classement par **note « bon plan » sur 100**, identique pour les 3 sites : Prix 40 (écart au prix
+  de marché estimé pour l'âge et le km), État 25, Usage 15, Fraîcheur 10, Transparence 5, Vendeur 5.
+  La note de prix affichée par le site ne compte pas. Annonces de plus de 30 jours et doublons entre
+  sites écartés. Méthode complète affichée dans l'admin (« Comment les annonces sont choisies et
+  notées ») et entonnoir par site (reçues, écartées, retenues, dans le top).
+- Par annonce : photo, note sur 100 et détail par critère, date de publication, prix de marché estimé, coût posé en France, badge
+  MAX VALUE (entre 35 % et 40 % sous le marché), signal compteur, défauts et vigilances du moteur.
 - « Voir 10 annonces de plus » sans perdre les annonces déjà affichées.
 - Bouton **Conso Apify** : dépense du mois, projection, conseil, acteurs les plus coûteux.
 
@@ -45,8 +47,9 @@ insuffisantes » ou « non communiqué » plutôt qu'un chiffre inventé.
 ```
 packages/core     moteur Python (contrats Pydantic, malus, mapping des annonces, classement)
   verdict_core/adapters/scrapers/search_sources.py   lecture des 3 sites via Apify
-  verdict_core/engine/ranking.py                     score « bon plan » + prix de marché estimé
-apps/api          FastAPI : /health, /search, /evaluate-url, /evaluate, /comparables, /debug/raw
+  verdict_core/engine/ranking.py                     note « bon plan » sur 100 + prix de marché estimé
+apps/api          FastAPI : /health, /search, /evaluate-url, /evaluate, /evaluate-from-url,
+                  /evaluation/{id}, /comparables, /debug/raw
 apps/web          Next.js 15 / TypeScript
   app/page.tsx                    accueil AutoVerdict
   app/admin/page.tsx              outil DJOHN MARA GAMOS
@@ -71,6 +74,7 @@ docs/                             chronologie, plans, stratégie
 | Render | API | **Manuel** : Manual Deploy > Deploy latest commit après tout changement de `apps/api` ou `packages/core` |
 | Apify | Lecture des annonces (forfait Starter) | Acteurs : `topapi~mobile-de-listings-scraper`, `crawloop~autoscout24-scraper`, `benthepythondev~kleinanzeigen-autos-scraper` |
 | GitHub Actions | Base de prix de référence | Onglet Actions > « Base de prix de reference » > Run workflow |
+| OVH | Noms de domaine autoverdicts.com et autoverdicts.fr | Zone DNS chez OVH, branchement sur Vercel en cours |
 
 ## Variables d'environnement
 
@@ -102,6 +106,14 @@ cd apps\web ; pnpm install ; pnpm dev
 ```
 
 ## Envoyer une modification
+
+D'abord les tests, **seuls** :
+
+```powershell
+pytest .\packages\core .\apps\api
+```
+
+Uniquement s'ils sont tous verts :
 
 ```powershell
 git add <fichiers>

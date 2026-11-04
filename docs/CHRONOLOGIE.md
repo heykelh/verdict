@@ -32,16 +32,18 @@ Pas de donnée inventée : on affiche « données insuffisantes » ou « non com
 | 22/10/2026 | **VERDICT** | Nom de code : évaluation d'un véhicule importé (moteur + CLI) |
 | 25/10/2026 | **DJOHN MARA GAMOS** | Nom public de l'outil de recherche multi-sites (thème GTA San Andreas) |
 | 27/10/2026 | **AutoVerdict** | Nom public du produit d'analyse de lien. DJOHN MARA GAMOS reste le nom de l'outil admin |
-| 01/11/2026 | Domaine | autoverdict.com déjà pris ; .com libres vérifiés : leverdictauto.com (recommandé), getautoverdict.com, monverdictauto.com, verdictvo.com, verdictoccasion.com, autolucide.com, voituresur20.com. **Non acheté à ce jour.** |
+| 01/11/2026 | Domaine | autoverdict.com déjà pris ; .com libres vérifiés : leverdictauto.com, getautoverdict.com, monverdictauto.com, verdictvo.com, verdictoccasion.com, autolucide.com, voituresur20.com |
+| 02/11/2026 | **autoverdicts.com** + **autoverdicts.fr** | Achetés chez OVH. Branchement sur Vercel en cours |
 
 ---
 
-## 3. Architecture actuelle (02/11/2026)
+## 3. Architecture actuelle (04/11/2026)
 
 Monorepo `verdict` (GitHub `heykelh/verdict`) :
 - `packages/core` — moteur Python : contrats Pydantic, malus 2026, mapping des annonces
-  (`adapters/scrapers/search_sources.py`), score « bon plan » et prix de marché estimé (`engine/ranking.py`).
-- `apps/api` — FastAPI : `/health`, `/search`, `/evaluate-url`, `/evaluate`, `/comparables`, `/debug/raw`.
+  (`adapters/scrapers/search_sources.py`), note « bon plan » sur 100 et prix de marché estimé (`engine/ranking.py`).
+- `apps/api` — FastAPI : `/health`, `/search`, `/evaluate-url`, `/evaluate`, `/evaluate-from-url`,
+  `/evaluation/{id}`, `/comparables`, `/debug/raw`.
 - `apps/web` — Next.js 15 / TypeScript :
   - `app/page.tsx` : accueil AutoVerdict (analyse de lien, bilan, boîte d'erreur détaillée) ;
   - `app/admin/page.tsx` : outil DJOHN MARA GAMOS ;
@@ -201,6 +203,41 @@ Variables d'environnement :
 - Reste à faire : redéployer Render (le fichier Python a changé) ; vérifier sur une vraie recherche
   quels sites fournissent la date de publication.
 
+### 03/11/2026 — Nouvelle note « bon plan » sur 100, équitable entre les sites
+- Domaine **autoverdicts.com** (et **autoverdicts.fr**) acheté chez OVH ; serveurs DNS OVH actifs
+  (`dns103.ovh.net`, `ns103.ovh.net`). Branchement sur Vercel en attente (zone DNS en cours d'activation).
+- **Bug majeur trouvé** dans la lecture de Kleinanzeigen : « Unbeschädigtes Fahrzeug » contient
+  « beschädigt » et « unfallfrei » contient « unfall ». Des voitures intactes étaient donc marquées
+  **accidentées** (−30 points) : très probablement la principale raison de l'absence de Kleinanzeigen
+  dans les résultats. Corrigé : les formes saines sont testées en premier.
+- **Nouvelle note sur 100** (`engine/ranking.py`), pensée comme un chasseur de bonnes affaires
+  professionnel : Prix 40, État 25, Usage 15, Fraîcheur 10, Transparence 5, Vendeur 5, avec le détail
+  par critère renvoyé pour chaque annonce (`score_details`). Plafonds : accidentée 40/100 max,
+  prix 40 % sous le marché 35/100 max.
+- **La note de prix du site ne compte plus** (seuls mobile.de et AutoScout24 la fournissent) ; elle
+  est affichée pour information. Le vendeur particulier ne coûte plus que 2 points face à un pro.
+- **Annonces de plus de 30 jours écartées** (date connue). Annonces sans date gardées, fraîcheur
+  notée 5/10. Le filtre de fraîcheur « Toutes » devient « 30 derniers jours ».
+- **Doublons entre sites** retirés (même année, km et prix), on garde l'annonce la plus complète.
+- Prix de marché estimé sur les seules annonces **non accidentées** du lot.
+- Kleinanzeigen reçoit **50 % d'annonces demandées en plus**, ses filtres étant appliqués après coup.
+- **Entonnoir par site** renvoyé par `/search` et affiché dans l'admin : reçues, plus de 30 jours,
+  illisibles, hors critères, doublons, retenues, sans date, dans le top.
+- Page admin : encadré « Comment les annonces sont choisies et notées » (méthode complète), note
+  sur 100 et détail par critère sur chaque fiche, nouveaux seuils de badges (Bon plan ≥ 70,
+  Correct 55-69), MAX VALUE limité à 35-40 % sous le marché.
+- Tests mis à jour et ajoutés (note sur 100, doublons, fraîcheur, bug « unbeschädigt », entonnoir).
+- Suppression de `scripts/build_weekly.py` (inutile depuis le retrait des bons plans hebdo) (`03a3303`).
+- Incident : le `main.py` livré avait perdu deux routes (`/evaluate-from-url`, `/evaluation/{id}`) ;
+  2 tests en échec, mais le push est parti car tests et envoi étaient lancés d'un seul bloc.
+  Sans effet sur le site (routes non utilisées par l'accueil ni l'admin).
+
+### 04/11/2026 — Correctif de l'API
+- `main.py` complet rétabli avec les deux routes manquantes ; 56 tests au vert (`8d864c6`).
+- Nouvelle règle : lancer les tests **seuls**, puis commit et push uniquement s'ils sont tous verts.
+- Reste à faire : Manual Deploy sur Render (active la note sur 100 côté serveur), puis une vraie
+  recherche pour vérifier l'entonnoir de Kleinanzeigen ; brancher autoverdicts.com sur Vercel.
+
 ---
 
 ## 5. Registre des décisions
@@ -218,6 +255,9 @@ Variables d'environnement :
 | 01/11 | AutoVerdict en SaaS à crédits ; DJOHN MARA GAMOS interne | Modèle économique clair, coûts maîtrisés |
 | 02/11 | Apify Starter payé | Débloquer l'outil et préparer le produit |
 | 02/11 | Plus aucune automatisation qui consomme Apify sans action humaine | Garder la facture sous contrôle |
+| 03/11 | Note bon plan sur 100 identique pour les 3 sites, sans la note de prix du site | Kleinanzeigen était désavantagé alors qu'il a souvent les meilleures affaires |
+| 03/11 | Annonces de plus de 30 jours écartées | Une vraie bonne affaire ne reste pas un mois en ligne |
+| 04/11 | Tests lancés seuls avant tout commit | Un push est parti avec 2 tests en échec |
 
 ---
 
@@ -246,10 +286,13 @@ Variables d'environnement :
 | 27/10 | Erreurs d'analyse incompréhensibles | Message générique | Boîte d'erreur : cause en clair + message brut copiable |
 | 02/11 | `git add` : « pathspec did not match » | Dossier créé en `admin/conso` au lieu de `admin/api/conso` | `Move-Item` vers le bon dossier |
 | 02/11 | Bons plans hebdo trop coûteux | Automatisation qui lit des centaines d'annonces | Suppression de `weekly.yml` et de la section |
+| 02/11 | Onglet Zone DNS d'OVH proposant de « commander » une zone, puis erreur 400 « already exists » | Domaine tout juste acheté, zone en cours d'activation | Ne rien commander, attendre ; serveurs DNS OVH vérifiés |
+| 03/11 | Voitures intactes de Kleinanzeigen marquées accidentées | « unbeschädigt » contient « beschädigt », « unfallfrei » contient « unfall » | Formes saines testées en premier + test automatique |
+| 03/11 | 2 tests API en échec après push (`/evaluate-from-url`, `/evaluation/{id}` en 404) | Routes oubliées dans le `main.py` livré | `main.py` complet rétabli (04/11) ; tests lancés avant tout commit |
 
 ---
 
-## 7. Coûts mensuels (au 02/11/2026)
+## 7. Coûts mensuels (au 04/11/2026)
 
 | Poste | Coût | Statut |
 |---|---|---|
@@ -258,17 +301,19 @@ Variables d'environnement :
 | Render | 0 $ → environ 7 $/mois | Offre payante conseillée pour le SaaS (pas de mise en veille) |
 | Google Play | 25 $ une seule fois | Payé |
 | Apple Developer | 99 $/an | Pas encore |
-| Nom de domaine | environ 10 à 15 €/an | Pas encore acheté |
+| Noms de domaine (OVH) | autoverdicts.com + autoverdicts.fr, environ 10 à 15 €/an chacun | Achetés le 02/11 |
 
 ---
 
-## 8. État actuel (02/11/2026)
+## 8. État actuel (04/11/2026)
 
 - Accueil AutoVerdict en ligne : analyse de lien, bilan sur 20, exemple, boîte d'erreur détaillée.
-- `/admin` (DJOHN MARA GAMOS) : recherche multi-sites, date de publication, « 10 de plus » qui
-  conserve la liste, bouton Conso Apify. Plus de bons plans hebdomadaires.
+- `/admin` (DJOHN MARA GAMOS) : recherche multi-sites avec note bon plan sur 100 équitable entre les
+  sites, méthode affichée, entonnoir par site, date de publication, annonces de plus de 30 jours
+  écartées, « 10 de plus » qui conserve la liste, bouton Conso Apify.
 - Base de prix de référence prête mais jamais générée (à lancer à la main depuis l'onglet Actions).
-- Apify payé ; Render à redéployer après le commit `609e4cb`.
+- Apify payé. **Render à redéployer** (commits `03a3303` et `8d864c6`).
+- Domaine autoverdicts.com acheté, pas encore branché.
 
 ### Avancement de la phase 0 (voir STRATEGIE-SAAS.md)
 - [x] Apify Starter
@@ -278,15 +323,17 @@ Variables d'environnement :
 - [ ] Repo passé en privé
 - [ ] Route serveur + clé secrète vers Render (fin des appels directs du navigateur)
 - [ ] Liste blanche des sites + CORS limité
-- [ ] Domaine acheté, Cloudflare, Vercel Pro
+- [x] Domaine acheté (autoverdicts.com, autoverdicts.fr)
+- [ ] Domaine branché sur Vercel, Cloudflare, Vercel Pro
 - [ ] Double authentification sur tous les comptes
 
 ---
 
 ## 9. Backlog
 
-- [ ] Classement plus équitable entre les sites (voir analyse du 02/11 : bonus de note mobile.de,
-      pénalité particulier, filtres non transmis à Kleinanzeigen) + entonnoir par site affiché dans l'admin.
+- [x] Classement équitable entre les sites + entonnoir par site (03/11).
+- [ ] Intégrer les défauts connus du moteur à la note bon plan (base moteurs à porter côté serveur).
+- [ ] Brancher autoverdicts.com sur Vercel + `VERDICT_CORS_ORIGINS` sur Render ; .fr redirigé vers le .com.
 - [ ] Modèle d'estimation de prix (année, km, puissance, carburant) avec fourchette et fiabilité.
 - [ ] Enregistrement de chaque annonce lue (base Neon) : alimente la cote et l'historique.
 - [ ] Mode saisie manuelle (compléter une annonce, base du Premium).

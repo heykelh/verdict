@@ -146,3 +146,29 @@ def debug_raw(source: str = "kleinanzeigen", make: str = "BMW", model: str = "32
         return {"count": len(items), "first_items": items[:2]}
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.post("/evaluate-from-url", response_model=EvaluationResponse)
+def evaluate_from_url(req: EvaluateFromUrlRequest) -> EvaluationResponse:
+    crit = SearchCriteria(marque=req.make, modele=req.model, annee=2020, km=0)
+    ic = req.import_costs.model_dump() if req.import_costs else None
+    try:
+        data = apify_mobile.build_full_input(crit, target_url=req.url, import_costs=ic)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Apify: {e}")
+    if not data:
+        raise HTTPException(status_code=404, detail="Annonce introuvable via Apify")
+    try:
+        evaluation, fiche = run(data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Moteur: {e}")
+    eid = _repo.save(evaluation)
+    return EvaluationResponse(id=eid, evaluation=evaluation, fiche=fiche)
+
+
+@app.get("/evaluation/{evaluation_id}")
+def get_evaluation(evaluation_id: str):
+    ev = _repo.get(evaluation_id)
+    if ev is None:
+        raise HTTPException(status_code=404, detail="Evaluation introuvable")
+    return ev

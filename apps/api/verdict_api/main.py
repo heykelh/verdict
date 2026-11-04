@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from verdict_core.adapters.scrapers import apify_mobile
 from verdict_core.adapters.scrapers.registry import gather
 from verdict_core.adapters.scrapers.search_sources import (
-    _ACTORS, _payload, _post, search_all, to_candidate,
+    _ACTORS, _payload, _post, _posted_date, fetch_kleinanzeigen_ad, search_all, to_candidate,
 )
 from verdict_core.cli import run
 from verdict_core.config import settings
@@ -120,17 +120,23 @@ def evaluate_url(req: dict):
     src = _source_from_url(url)
     if not src:
         raise HTTPException(status_code=400, detail="Lien non reconnu (mobile.de, AutoScout24 ou Kleinanzeigen attendu).")
-    payload = {"proxyConfiguration": {"useApifyProxy": True}, "startUrls": [{"url": url}]}
     try:
-        items = _post(_ACTORS[src], payload)
+        if src == "kleinanzeigen":
+            # L'acteur de recherche Kleinanzeigen n'accepte pas les liens d'annonce.
+            items = fetch_kleinanzeigen_ad(url)
+        else:
+            payload = {"proxyConfiguration": {"useApifyProxy": True}, "startUrls": [{"url": url}]}
+            items = _post(_ACTORS[src], payload)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Recuperation impossible : {e}")
     if not items:
-        raise HTTPException(status_code=404, detail="Annonce introuvable ou illisible depuis ce lien.")
+        raise HTTPException(status_code=404, detail="Annonce introuvable ou illisible depuis ce lien (supprimee, vendue ou page bloquee).")
     c = to_candidate(items[0])
     if c is None:
         raise HTTPException(status_code=422, detail="Annonce incomplete (prix, km ou annee manquant).")
     c.source = src
+    d = _posted_date(items[0], date.today())
+    c.date_annonce = d.isoformat() if d else None
     c.cout_pose_estime_eur = _cout_pose(c)
     rank_candidates([c])                 # risques intrinseques (accident, CT, vendeur...)
     c.prix_marche_estime_eur = None      # pas de comparaison marche sur une annonce isolee

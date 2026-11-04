@@ -54,3 +54,26 @@ def test_annonce_de_plus_de_30_jours_ecartee_et_entonnoir(monkeypatch):
     assert [c.url for c in cands] == ["r"]
     st = stats["mobile_de"]
     assert st["recues"] == 3 and st["retenues"] == 1 and st["illisibles"] == 1
+
+
+def test_kleinanzeigen_toute_l_allemagne_et_filtres():
+    p = ss._payload("kleinanzeigen", "BMW", "X1", {"year_min": 2012, "price_max": 15000}, 20)
+    assert p["locationCode"] == "" and p["minYear"] == 2012 and p["maxPrice"] == 15000
+    assert p["proxyConfiguration"]["apifyProxyGroups"] == ["RESIDENTIAL"]
+
+
+def test_lecture_annonce_kleinanzeigen(monkeypatch):
+    item = {"url": "k", "title": "VW Touran 1.6 TDI", "price": "10.799 €", "posted_date": "04.11.2026",
+            "seller_type": "private", "powerKw": 81,
+            "attributes": {"Kilometerstand": "175.000 km", "Erstzulassung": "März 2016",
+                           "Kraftstoffart": "Diesel", "Fahrzeugzustand": "Unbeschädigtes Fahrzeug",
+                           "HU bis": "Mai 2027"}}
+    calls = {}
+    def fake(actor, payload, timeout=300):
+        calls["actor"] = actor
+        return [item, {"title": ""}]
+    monkeypatch.setattr(ss, "_post", fake)
+    items = ss.fetch_kleinanzeigen_ad("https://www.kleinanzeigen.de/s-anzeige/x/1")
+    assert calls["actor"] == "apify~cheerio-scraper" and len(items) == 1
+    c = ss.to_candidate(items[0])
+    assert (c.prix_eur, c.km, c.annee, c.carburant, c.has_damage, c.hu_ok) == (10799, 175000, 2016, "diesel", False, True)

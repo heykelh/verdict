@@ -117,8 +117,9 @@ function Methode() {
 
       <div style={h}>1. Collecte</div>
       <p style={p}>Pour N annonces demandees, chaque site coche est interroge pour au moins 20 annonces (60 au maximum).
-        mobile.de et AutoScout24 recoivent directement vos filtres (marque, modele, budget, annee, km).
-        Kleinanzeigen ne recoit que la marque et le modele : on lui demande donc 50 % d'annonces en plus, et vos filtres sont appliques ensuite.</p>
+        Les trois sites recoivent directement vos filtres (budget, annee, km), sur toute l'Allemagne.
+        Kleinanzeigen cherche la marque et le modele dans le titre des annonces, moins precisement que les deux autres : on lui demande 20 % d'annonces en plus.
+        Vos filtres sont de toute facon reverifies ensuite sur chaque annonce.</p>
 
       <div style={h}>2. Annonces ecartees avant le classement</div>
       <ul style={{ ...p, paddingLeft: 18 }}>

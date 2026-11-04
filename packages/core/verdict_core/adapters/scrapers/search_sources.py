@@ -21,9 +21,44 @@ _ACTORS = {
 
 # Au-dela, une annonce est ecartee : une bonne affaire ne reste pas en ligne un mois.
 MAX_AGE_DAYS = 30
-# Kleinanzeigen ne recoit pas les filtres annee / prix / km : on lui demande plus d'annonces
-# pour compenser celles ecartees apres coup.
-KLEIN_BOOST = 1.5
+# Kleinanzeigen : son acteur filtre par mot-cle dans le titre (moins precis que les filtres
+# marque / modele des autres sites) ; on lui demande un peu plus d'annonces pour compenser.
+KLEIN_BOOST = 1.2
+# Kleinanzeigen bloque les adresses de centres de donnees : proxy residentiel allemand obligatoire.
+_PROXY_DE = {"useApifyProxy": True, "apifyProxyGroups": ["RESIDENTIAL"], "apifyProxyCountry": "DE"}
+# Lecture d'UNE annonce Kleinanzeigen (l'acteur de recherche n'accepte pas les liens d'annonce) :
+# acteur officiel Apify « Cheerio Scraper » + extraction de la page par nos soins.
+_CHEERIO = "apify~cheerio-scraper"
+_KLEIN_PAGE_FUNCTION = r"""
+async function pageFunction(context) {
+  const { $, request } = context;
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  const txt = (sel) => clean($(sel).first().text());
+  const attributes = {};
+  $('#viewad-details li').each((i, li) => {
+    const spans = $(li).children('span');
+    const k = clean($(spans[0]).text());
+    const v = clean($(spans[1]).text());
+    if (k) attributes[k] = v;
+  });
+  const contact = clean($('#viewad-contact').text() + ' ' + $('#viewad-profile-box').text());
+  const leistungKey = Object.keys(attributes).find((k) => /^leistung/i.test(k));
+  const ps = parseInt(((leistungKey && attributes[leistungKey]) || '').replace(/[^0-9]/g, ''), 10);
+  return {
+    url: request.loadedUrl || request.url,
+    title: txt('#viewad-title'),
+    price: txt('#viewad-price'),
+    posted_date: (txt('#viewad-extra-info').match(/\d{2}\.\d{2}\.\d{4}/) || [])[0] || txt('#viewad-extra-info'),
+    location: txt('#viewad-locality'),
+    image_url: $('meta[property="og:image"]').attr('content') || $('#viewad-image').attr('src') || null,
+    seller_type: /gewerblich|händler|haendler/i.test(contact) ? 'dealer' : (/privat/i.test(contact) ? 'private' : null),
+    seller_active_since: (contact.match(/Aktiv seit\s*([0-9.]+)/i) || [])[1] || null,
+    powerKw: isNaN(ps) ? null : Math.round(ps * 0.7355),
+    attributes,
+    description: txt('#viewad-description-text').slice(0, 2000),
+  };
+}
+"""
 
 _FUEL = {"diesel": "diesel", "benzin": "essence", "petrol": "essence",
          "elektro": "electrique", "electric": "electrique",
@@ -247,7 +282,28 @@ def _payload(source, make, model, f: dict, max_results):
         if f.get("year_max"): p["maxYear"] = f["year_max"]
         if f.get("km_max"): p["maxMileage"] = f["km_max"]
         return p
-    return {**base, "keyword": f"{make} {model}", "maxResults": max_results}
+    # Kleinanzeigen : sans « locationCode » l'acteur cherche par defaut a Berlin seulement.
+    p = {"proxyConfiguration": _PROXY_DE, "keyword": f"{make} {model}".lower(),
+         "locationCode": "", "radiusKm": 0, "fetchDetails": True, "maxResults": max_results}
+    if f.get("price_min"): p["minPrice"] = f["price_min"]
+    if f.get("price_max"): p["maxPrice"] = f["price_max"]
+    if f.get("year_min"): p["minYear"] = f["year_min"]
+    if f.get("km_max"): p["maxMileage"] = f["km_max"]
+    return p
+
+
+def fetch_kleinanzeigen_ad(url: str) -> list[dict]:
+    """Lit une seule annonce Kleinanzeigen a partir de son lien."""
+    payload = {
+        "startUrls": [{"url": url}],
+        "pageFunction": _KLEIN_PAGE_FUNCTION,
+        "proxyConfiguration": _PROXY_DE,
+        "maxRequestsPerCrawl": 1,
+        "maxRequestRetries": 2,
+        "maxConcurrency": 1,
+    }
+    items = _post(_CHEERIO, payload)
+    return [it for it in items if isinstance(it, dict) and it.get("title")]
 
 
 def _post(actor: str, payload: dict, timeout: int = 300) -> list[dict]:

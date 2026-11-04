@@ -36,3 +36,21 @@ def test_search_all_agrege_filtre_et_tague(monkeypatch):
     assert {c.source for c in cands} == {"mobile_de", "autoscout24"}
     assert all(c.prix_eur <= 20000 for c in cands)
     assert errors == {}
+
+
+def test_kleinanzeigen_unbeschaedigt_n_est_pas_accidente():
+    for cond in ("Unbeschädigtes Fahrzeug", "Unfallfrei"):
+        c = ss.to_candidate({**KLEIN, "condition": cond})
+        assert c.has_damage is False, cond
+
+
+def test_annonce_de_plus_de_30_jours_ecartee_et_entonnoir(monkeypatch):
+    from datetime import date, timedelta
+    vieille = {**ITEM, "url": "v", "createdAt": (date.today() - timedelta(days=60)).isoformat(), "price": 14000}
+    recente = {**ITEM, "url": "r", "posted_date": "Heute, 10:00"}
+    monkeypatch.setattr(ss, "_post", lambda actor, payload, timeout=300: [vieille, recente, {"title": "x"}])
+    stats: dict = {}
+    cands, _ = ss.search_all("BMW", "320", sources=["mobile_de"], stats=stats)
+    assert [c.url for c in cands] == ["r"]
+    st = stats["mobile_de"]
+    assert st["recues"] == 3 and st["retenues"] == 1 and st["illisibles"] == 1

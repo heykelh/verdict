@@ -60,3 +60,5 @@ class Candidate(BaseModel):
     cout_pose_estime_eur: float | None = None
     risks: list[str] = Field(default_factory=list)
     score: float = 0.0
+    # Detail de la note « bon plan » sur 100 : prix, etat, usage, fraicheur, transparence, vendeur.
+    score_details: dict[str, float] = Field(default_factory=dict)

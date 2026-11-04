@@ -71,6 +71,22 @@ function datePub(c: Candidate): string {
   return `Publiee le ${d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} (${quand})`;
 }
 
+// Note « bon plan » sur 100 : memes criteres et memes poids que le serveur (engine/ranking.py).
+const CRITERES: { key: string; nom: string; max: number }[] = [
+  { key: "prix", nom: "Prix", max: 40 },
+  { key: "etat", nom: "Etat", max: 25 },
+  { key: "usage", nom: "Usage", max: 15 },
+  { key: "fraicheur", nom: "Fraicheur", max: 10 },
+  { key: "transparence", nom: "Transparence", max: 5 },
+  { key: "vendeur", nom: "Vendeur", max: 5 },
+];
+const AVIS_SITE: Record<string, string> = {
+  GREAT_PRICE: "tres bon prix", VERY_GOOD_PRICE: "tres bon prix", GOOD_PRICE: "bon prix",
+  REASONABLE_PRICE: "prix correct", FAIR_PRICE: "prix correct", INCREASED_PRICE: "prix un peu eleve",
+  HIGH_PRICE: "prix eleve", VERY_HIGH_PRICE: "prix tres eleve",
+};
+const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString("fr-FR");
+
 const keyOf = (c: Candidate) => c.url || `${c.titre}|${c.prix_eur}|${c.km}`;
 function mergeByKey(prev: Candidate[], next: Candidate[]): Candidate[] {
   const seen = new Set(prev.map(keyOf));
@@ -80,9 +96,69 @@ function mergeByKey(prev: Candidate[], next: Candidate[]): Candidate[] {
 function dealBadge(c: Candidate): { t: string; col: string } {
   const grave = c.risks.some((r) => /arnaque|accident/i.test(r));
   if (grave) return { t: "A eviter", col: RED };
-  if (c.score >= 55) return { t: "Bon plan", col: GREEN };
-  if (c.score >= 30) return { t: "Correct", col: OCRE };
+  if (c.score >= 70) return { t: "Bon plan", col: GREEN };
+  if (c.score >= 55) return { t: "Correct", col: OCRE };
   return { t: "Moyen", col: "#7a6a2f" };
+}
+
+// Explication complete et exacte du choix des annonces (a garder alignee sur ranking.py et search_sources.py).
+function Methode() {
+  const th: React.CSSProperties = { textAlign: "left", padding: "6px 8px", borderBottom: `2px solid ${INK}`, fontSize: 12 };
+  const td: React.CSSProperties = { padding: "6px 8px", borderBottom: "1px solid #c9bd97", fontSize: 12, verticalAlign: "top", lineHeight: 1.45 };
+  const p: React.CSSProperties = { fontSize: 12.5, lineHeight: 1.55, margin: "6px 0" };
+  const h: React.CSSProperties = { fontFamily: '"Anton", sans-serif', fontSize: 14, letterSpacing: 0.5, margin: "16px 0 4px", textTransform: "uppercase" };
+  return (
+    <details style={panel}>
+      <summary style={{ cursor: "pointer", fontFamily: '"Anton", sans-serif', fontSize: 17, color: INK, textTransform: "uppercase", letterSpacing: 0.6 }}>
+        Comment les annonces sont choisies et notees
+      </summary>
+      <p style={p}>Objectif : trouver ce qu'un chasseur de bonnes affaires professionnel proposerait a son client, une voiture <b>fiable, en bon etat et pas chere</b>.
+        Les trois sites sont traites exactement de la meme facon.</p>
+
+      <div style={h}>1. Collecte</div>
+      <p style={p}>Pour N annonces demandees, chaque site coche est interroge pour au moins 20 annonces (60 au maximum).
+        mobile.de et AutoScout24 recoivent directement vos filtres (marque, modele, budget, annee, km).
+        Kleinanzeigen ne recoit que la marque et le modele : on lui demande donc 50 % d'annonces en plus, et vos filtres sont appliques ensuite.</p>
+
+      <div style={h}>2. Annonces ecartees avant le classement</div>
+      <ul style={{ ...p, paddingLeft: 18 }}>
+        <li><b>Publiees il y a plus de 30 jours</b> (ou plus que la fraicheur choisie) : une vraie bonne affaire ne reste pas un mois en ligne. Les annonces dont le site ne donne pas la date sont gardees.</li>
+        <li><b>Illisibles</b> : sans prix, sans kilometrage ou sans annee.</li>
+        <li><b>Hors criteres</b> : budget, annee, kilometrage ou carburant en dehors de vos filtres.</li>
+        <li><b>Doublons</b> : la meme voiture publiee sur deux sites (meme annee, meme km, meme prix). On garde l'annonce la plus complete.</li>
+      </ul>
+
+      <div style={h}>3. Prix du marche estime</div>
+      <p style={p}>Pour chaque voiture, on estime le prix normal pour son age et son kilometrage, a partir des autres annonces non accidentees de la meme recherche
+        (formule prix = base + effet de l'age + effet du kilometrage, bornee entre 50 % et 180 % du prix median). Avec moins de 6 annonces, on prend le prix median.
+        L'ecart a ce prix est la base du critere Prix.</p>
+
+      <div style={h}>4. Note bon plan sur 100</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 520 }}>
+          <thead><tr><th style={th}>Critere</th><th style={th}>Points</th><th style={th}>Calcul</th></tr></thead>
+          <tbody>
+            <tr><td style={td}><b>Prix</b></td><td style={td}>40</td><td style={td}>20 % sous le marche ou mieux : 40. Au prix du marche : 22. 24 % au-dessus ou plus : 0 (lineaire entre les deux).
+              Prix 40 % sous le marche ou plus : 10 seulement, signale « risque d'arnaque ou de vice cache ». Prix non comparable : 20.</td></tr>
+            <tr><td style={td}><b>Etat</b></td><td style={td}>25</td><td style={td}>Part de 25. Accidente : −25. Etat non declare : −3. Controle technique a refaire : −8 ; non precise : −3.
+              4 proprietaires ou plus : −8 ; 3 proprietaires : −4 ; nombre non precise : −2.</td></tr>
+            <tr><td style={td}><b>Usage</b></td><td style={td}>15</td><td style={td}>Km par an : 12 000 ou moins : 15 ; jusqu'a 18 000 : 12 ; jusqu'a 25 000 : 8 ; jusqu'a 30 000 : 5 ; au-dela : 2.
+              Plus de 200 000 km : −4 ; plus de 250 000 km : −7.</td></tr>
+            <tr><td style={td}><b>Fraicheur</b></td><td style={td}>10</td><td style={td}>Publiee depuis 3 jours ou moins : 10 ; 7 jours : 8 ; 14 jours : 6 ; 30 jours : 3. Date inconnue : 5.</td></tr>
+            <tr><td style={td}><b>Transparence</b></td><td style={td}>5</td><td style={td}>Proportion des informations fournies : puissance, controle technique, etat, proprietaires, photo, carburant.</td></tr>
+            <tr><td style={td}><b>Vendeur</b></td><td style={td}>5</td><td style={td}>Professionnel (garantie legale) : 5. Particulier ou inconnu : 3.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style={p}><b>Plafonds :</b> une voiture accidentee ne depasse jamais 40/100 ; un prix 40 % sous le marche ne depasse jamais 35/100.</p>
+      <p style={p}><b>Note du site</b> (« Sehr guter Preis »...) : affichee sur la fiche pour information, mais <b>elle ne compte pas</b> dans la note, car Kleinanzeigen n'en a pas.</p>
+
+      <div style={h}>5. Classement et badges</div>
+      <p style={p}>Les N annonces avec la meilleure note sont affichees. Badges : <b>Bon plan</b> a partir de 70/100, <b>Correct</b> de 55 a 69, <b>Moyen</b> en dessous,
+        <b> A eviter</b> si la voiture est accidentee ou si le prix est suspect. <b>MAX VALUE</b> : entre 35 % et 40 % sous le marche.</p>
+      <p style={{ ...hint, marginTop: 8 }}>Limite : le prix du marche est compare aux annonces de la meme recherche, pas a une cote officielle. Les defauts connus du moteur sont affiches mais pas encore integres a la note.</p>
+    </details>
+  );
 }
 
 function sortCands(list: Candidate[], key: string): Candidate[] {
@@ -104,7 +180,7 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
   const engs = matchEngines(c.titre || "");
   const mf = mileageFlag(c);
   const ec = c.ecart_marche_pct;
-  const maxValue = ec !== null && ec !== undefined && ec <= -35;
+  const maxValue = ec !== null && ec !== undefined && ec <= -35 && ec > -40;
   const marche = c.prix_marche_estime_eur ??
     (ec !== null && ec !== undefined && ec > -100 ? Math.round((c.prix_eur / (1 + ec / 100)) / 50) * 50 : null);
   return (
@@ -139,6 +215,20 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
         <div style={{ fontSize: 12, marginTop: 3, color: c.date_annonce ? INK : "#8a7f5c", fontStyle: c.date_annonce ? "normal" : "italic" }}>
           {datePub(c)}
         </div>
+        <div style={{ marginTop: 7, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontFamily: '"Anton", sans-serif', fontSize: 13, letterSpacing: 0.4 }}>Note bon plan {fmt(c.score)}/100</span>
+          {c.score_details && CRITERES.map((k) => (
+            <span key={k.key} title={`${k.nom} : ${fmt(c.score_details?.[k.key] ?? 0)} sur ${k.max}`}
+              style={{ fontSize: 11, border: `1px solid ${INK}`, borderRadius: 3, padding: "1px 6px", background: "#f7f0da" }}>
+              {k.nom} {fmt(c.score_details?.[k.key] ?? 0)}/{k.max}
+            </span>
+          ))}
+        </div>
+        {c.price_rating && AVIS_SITE[c.price_rating.toUpperCase()] && (
+          <div style={{ fontSize: 11.5, marginTop: 4, color: "#5c5338" }}>
+            Avis de {srcNom(c.source)} : {AVIS_SITE[c.price_rating.toUpperCase()]} (pour information, non compte dans la note)
+          </div>
+        )}
         {c.risks.length > 0 && (
           <div style={{ marginTop: 7, display: "flex", gap: 7, flexWrap: "wrap" }}>
             {c.risks.map((r, j) => (
@@ -343,7 +433,7 @@ export default function Home() {
           </select>
           <span style={label}>Fraicheur</span>
           <select value={fresh} onChange={(e) => setFresh(Number(e.target.value))} style={{ ...input, width: 170 }}>
-            <option value={0}>Toutes</option><option value={1}>Dans les 24h</option>
+            <option value={0}>30 derniers jours</option><option value={1}>Dans les 24h</option>
             <option value={3}>3 derniers jours</option><option value={7}>7 derniers jours</option>
             <option value={14}>14 derniers jours</option>
           </select>
@@ -360,6 +450,8 @@ export default function Home() {
           </button>
         </div>
       </div>
+
+      <Methode />
 
       {/* Loader pendant la recherche */}
       {loading && (
@@ -395,8 +487,35 @@ export default function Home() {
           </div>
           {cands.length > 0 && (
             <div style={{ ...hint, marginBottom: 8 }}>
-              Annonces par source : {SOURCES.map((s) => `${s.nom} ${srcCounts[s.id] || 0}`).join(" · ")}
+              Annonces affichees par source : {SOURCES.map((s) => `${s.nom} ${srcCounts[s.id] || 0}`).join(" · ")}
             </div>
+          )}
+          {sRes.funnel && Object.keys(sRes.funnel).length > 0 && (
+            <details style={{ ...panel, padding: 12 }}>
+              <summary style={{ cursor: "pointer", ...label }}>Entonnoir par site (derniere recherche)</summary>
+              <div style={{ overflowX: "auto", marginTop: 8 }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 560, fontSize: 12 }}>
+                  <thead>
+                    <tr>{["Site", "Recues", "Plus de 30 j", "Illisibles", "Hors criteres", "Doublons", "Retenues", "Sans date", "Dans le top"].map((h) => (
+                      <th key={h} style={{ textAlign: "left", padding: "4px 6px", borderBottom: `2px solid ${INK}` }}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(sRes.funnel).map(([s, f]) => (
+                      <tr key={s}>
+                        {[srcNom(s), f.recues, f.trop_anciennes, f.illisibles, f.hors_criteres, f.doublons ?? 0, f.retenues, f.sans_date, f.dans_le_top ?? 0].map((v, i) => (
+                          <td key={i} style={{ padding: "4px 6px", borderBottom: "1px solid #c9bd97", fontWeight: i === 0 || i === 8 ? 700 : 400 }}>{v}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ ...hint, marginTop: 6 }}>
+                Si un site recoit beaucoup d'annonces mais en retient peu, c'est le tri qui les ecarte (dates, champs manquants, criteres).
+                S'il en retient beaucoup mais n'en place aucune dans le top, ce sont simplement de moins bonnes affaires.
+              </div>
+            </details>
           )}
           {Object.keys(sRes.errors).length > 0 && (
             <div style={{ ...panel, borderColor: RED }}>
@@ -411,7 +530,7 @@ export default function Home() {
               <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 16, color: INK, marginBottom: 6 }}>Aucune annonce trouvee</div>
               <div style={hint}>
                 Rien ne correspond a ces criteres{Object.keys(sRes.errors).length > 0 ? " (et certains sites n'ont pas repondu, voir ci-dessus)" : ""}.
-                Elargis le budget / l'annee / le kilometrage, verifie l'orthographe du modele, ou mets la fraicheur sur "Toutes", puis relance.
+                Elargis le budget / l'annee / le kilometrage, verifie l'orthographe du modele, ou mets la fraicheur sur "30 derniers jours", puis relance.
               </div>
             </div>
           ) : (

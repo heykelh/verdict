@@ -21,6 +21,20 @@ export interface Candidate {
   date_annonce?: string | null;
   risks: string[];
   score: number;
+  // Détail de la note « bon plan » sur 100 (prix, etat, usage, fraicheur, transparence, vendeur).
+  score_details?: Record<string, number>;
+}
+
+// Entonnoir d'un site pour une recherche : annonces reçues, écartées, retenues, dans le top.
+export interface SourceFunnel {
+  recues: number;
+  illisibles: number;
+  hors_criteres: number;
+  trop_anciennes: number;
+  sans_date: number;
+  retenues: number;
+  doublons?: number;
+  dans_le_top?: number;
 }
 
 export interface SearchResults {
@@ -28,4 +42,5 @@ export interface SearchResults {
   candidates: Candidate[];
   errors: Record<string, string>;
   counts?: Record<string, number>;
+  funnel?: Record<string, SourceFunnel>;
 }

@@ -19,6 +19,12 @@ _ACTORS = {
     "kleinanzeigen": "benthepythondev~kleinanzeigen-autos-scraper",
 }
 
+# Au-dela, une annonce est ecartee : une bonne affaire ne reste pas en ligne un mois.
+MAX_AGE_DAYS = 30
+# Kleinanzeigen ne recoit pas les filtres annee / prix / km : on lui demande plus d'annonces
+# pour compenser celles ecartees apres coup.
+KLEIN_BOOST = 1.5
+
 _FUEL = {"diesel": "diesel", "benzin": "essence", "petrol": "essence",
          "elektro": "electrique", "electric": "electrique",
          "hybrid": "hybride", "lpg": "gpl"}
@@ -192,10 +198,12 @@ def to_candidate(item: dict) -> Candidate | None:
     hd = _first(item, "hasDamage", "isDamageCase", "accident")
     if not isinstance(hd, bool):
         cond = str(_first(item, "condition") or attrs.get("Fahrzeugzustand") or "").lower()
-        if "beschädigt" in cond or "unfall" in cond:
-            hd = True
-        elif "unbeschädigt" in cond or "unfallfrei" in cond:
+        # « unbeschädigt » contient « beschädigt » et « unfallfrei » contient « unfall » :
+        # on teste d'abord les formes saines, sinon une voiture intacte passe pour accidentee.
+        if any(w in cond for w in ("unbeschädigt", "unbeschaedigt", "unfallfrei", "keine schäden")):
             hd = False
+        elif any(w in cond for w in ("beschädigt", "beschaedigt", "unfall", "defekt")):
+            hd = True
         else:
             hd = None
 
@@ -278,32 +286,53 @@ def _passes(c: Candidate, f: dict) -> bool:
 
 
 def search_source(source, make, model, f: dict | None = None,
-                  max_results: int = 40) -> list[Candidate]:
+                  max_results: int = 40, stats: dict | None = None,
+                  max_age_days: int | None = MAX_AGE_DAYS) -> list[Candidate]:
+    """Lit un site et renvoie les annonces exploitables. `stats` (facultatif) recoit
+    l'entonnoir : recues, illisibles, hors criteres, trop anciennes, retenues."""
     f = f or {}
+    if source == "kleinanzeigen":
+        max_results = int(max_results * KLEIN_BOOST)
     items = _post(_ACTORS[source], _payload(source, make, model, f, max_results))
     today = date.today()
-    dm = f.get("days_max")
+    limits = [x for x in (f.get("days_max"), max_age_days) if x]
+    dm = min(limits) if limits else None
+    st = {"recues": len(items), "illisibles": 0, "hors_criteres": 0,
+          "trop_anciennes": 0, "sans_date": 0, "retenues": 0}
     out: list[Candidate] = []
     for it in items:
         d = _posted_date(it, today)
         if dm and d and (today - d).days > dm:
+            st["trop_anciennes"] += 1
             continue
         c = to_candidate(it)
-        if c and _passes(c, f):
-            c.source = source
-            c.date_annonce = d.isoformat() if d else None
-            out.append(c)
+        if c is None:
+            st["illisibles"] += 1
+            continue
+        if not _passes(c, f):
+            st["hors_criteres"] += 1
+            continue
+        c.source = source
+        c.date_annonce = d.isoformat() if d else None
+        if not d:
+            st["sans_date"] += 1
+        st["retenues"] += 1
+        out.append(c)
+    if stats is not None:
+        stats[source] = st
     return out
 
 
 def search_all(make, model, f: dict | None = None, max_results: int = 40,
-               sources=None) -> tuple[list[Candidate], dict]:
+               sources=None, stats: dict | None = None,
+               max_age_days: int | None = MAX_AGE_DAYS) -> tuple[list[Candidate], dict]:
     f = f or {}
     sources = sources or list(_ACTORS)
     allc: list[Candidate] = []
     errors: dict = {}
     with ThreadPoolExecutor(max_workers=max(1, len(sources))) as ex:
-        futs = {ex.submit(search_source, s, make, model, f, max_results): s for s in sources}
+        futs = {ex.submit(search_source, s, make, model, f, max_results, stats, max_age_days): s
+                for s in sources}
         for fut in as_completed(futs):
             s = futs[fut]
             try:

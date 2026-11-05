@@ -16,6 +16,8 @@ node_modules/
 
 # Data
 data/snapshots/
+data/debug/
+data/evaluations/
 *.duckdb
 
 # IDE / OS

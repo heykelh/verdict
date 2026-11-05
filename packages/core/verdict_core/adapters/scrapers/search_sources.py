@@ -13,33 +13,55 @@ from urllib.request import Request, urlopen
 from ...config import settings
 from ...market_types import Candidate
 
+# Acteur officiel Apify « Cheerio Scraper » : lit les pages Kleinanzeigen avec notre propre extraction.
+_CHEERIO = "apify~cheerio-scraper"
+
 _ACTORS = {
     "mobile_de": "topapi~mobile-de-listings-scraper",
     "autoscout24": "crawloop~autoscout24-scraper",
-    "kleinanzeigen": "benthepythondev~kleinanzeigen-autos-scraper",
+    # L'acteur tiers « benthepythondev~kleinanzeigen-autos-scraper » plantait a chaque recherche
+    # (« The main function of the Actor threw an exception ») : remplace le 05/11/2026.
+    "kleinanzeigen": _CHEERIO,
 }
 
 # Au-dela, une annonce est ecartee : une bonne affaire ne reste pas en ligne un mois.
 MAX_AGE_DAYS = 30
-# Kleinanzeigen : son acteur filtre par mot-cle dans le titre (moins precis que les filtres
-# marque / modele des autres sites) ; on lui demande un peu plus d'annonces pour compenser.
+# Kleinanzeigen : certaines annonces sont ecartees apres coup (modele absent du titre,
+# champs manquants) ; on lui demande un peu plus d'annonces pour compenser.
 KLEIN_BOOST = 1.2
+_KLEIN_BASE = "https://www.kleinanzeigen.de"
 # Kleinanzeigen bloque les adresses de centres de donnees : proxy residentiel allemand obligatoire.
 _PROXY_DE = {"useApifyProxy": True, "apifyProxyGroups": ["RESIDENTIAL"], "apifyProxyCountry": "DE"}
-# Lecture d'UNE annonce Kleinanzeigen (l'acteur de recherche n'accepte pas les liens d'annonce) :
-# acteur officiel Apify « Cheerio Scraper » + extraction de la page par nos soins.
-_CHEERIO = "apify~cheerio-scraper"
+# Kleinanzeigen : une seule fonction de page pour les deux cas.
+#  - page de RESULTATS de recherche (userData.type = "search") : on met en file les annonces trouvees ;
+#  - page d'ANNONCE : on extrait prix, km, annee, carburant, puissance, CT, etat, date, vendeur.
+# Structure de la page verifiee le 05/11/2026 : <li>Libelle<span>Valeur</span></li> dans #viewad-details.
 _KLEIN_PAGE_FUNCTION = r"""
 async function pageFunction(context) {
-  const { $, request } = context;
+  const { $, request, enqueueRequest } = context;
   const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
   const txt = (sel) => clean($(sel).first().text());
+  const ud = request.userData || {};
+
+  if (ud.type === 'search') {
+    const links = [];
+    $('[data-adid]').each((i, el) => {
+      const h = $(el).attr('data-href') || $(el).find('a[href*="/s-anzeige/"]').first().attr('href');
+      if (h && h.includes('/s-anzeige/')) links.push(h.split('?')[0]);
+    });
+    const uniq = [...new Set(links)].slice(0, ud.max || 25);
+    for (const h of uniq) {
+      await enqueueRequest({ url: new URL(h, 'https://www.kleinanzeigen.de').href, userData: { type: 'ad' } });
+    }
+    return { page: 'search', url: request.url, found: uniq.length };
+  }
+
   const attributes = {};
   $('#viewad-details li').each((i, li) => {
-    const spans = $(li).children('span');
-    const k = clean($(spans[0]).text());
-    const v = clean($(spans[1]).text());
-    if (k) attributes[k] = v;
+    const v = clean($(li).find('span').last().text());
+    const full = clean($(li).text());
+    const k = clean(v && full.endsWith(v) ? full.slice(0, full.length - v.length) : $(li).children().first().text());
+    if (k && k !== v) attributes[k] = v;
   });
   const contact = clean($('#viewad-contact').text() + ' ' + $('#viewad-profile-box').text());
   const leistungKey = Object.keys(attributes).find((k) => /^leistung/i.test(k));
@@ -59,6 +81,19 @@ async function pageFunction(context) {
   };
 }
 """
+_KLEIN_PER_PAGE = 25        # annonces par page de resultats Kleinanzeigen (27 avec les annonces mises en avant)
+
+
+def _cheerio_payload(start_urls: list[dict], max_requests: int) -> dict:
+    return {
+        "startUrls": start_urls,
+        "pageFunction": _KLEIN_PAGE_FUNCTION,
+        "proxyConfiguration": _PROXY_DE,
+        "maxRequestsPerCrawl": max_requests,
+        "maxRequestRetries": 2,
+        "maxConcurrency": 5,
+    }
+
 
 _FUEL = {"diesel": "diesel", "benzin": "essence", "petrol": "essence",
          "elektro": "electrique", "electric": "electrique",
@@ -264,7 +299,8 @@ def to_candidate(item: dict) -> Candidate | None:
 def _payload(source, make, model, f: dict, max_results):
     base = {"proxyConfiguration": {"useApifyProxy": True}}
     if source == "mobile_de":
-        p = {**base, "make": make, "model": model, "maxResults": max_results}
+        # Les plus recentes d'abord : les annonces de plus de 30 jours sont ecartees de toute facon.
+        p = {**base, "make": make, "model": model, "maxResults": max_results, "sort": "newest"}
         if f.get("price_min"): p["priceMin"] = f["price_min"]
         if f.get("price_max"): p["priceMax"] = f["price_max"]
         if f.get("year_min"): p["yearMin"] = f["year_min"]
@@ -272,37 +308,94 @@ def _payload(source, make, model, f: dict, max_results):
         if f.get("km_max"): p["mileageMax"] = f["km_max"]
         if f.get("days_max"):
             p["postedWithinDays"] = f["days_max"]
-            p["sort"] = "newest"
         return p
     if source == "autoscout24":
-        p = {**base, "make": make, "model": model, "maxItems": max_results}
+        # AutoScout24 : Allemagne, occasions, les plus recentes d'abord (sinon surtout des annonces anciennes).
+        p = {**base, "make": make, "model": model, "maxItems": max_results,
+             "countries": ["D"], "condition": "used", "sortBy": "newest"}
         if f.get("price_min"): p["minPrice"] = f["price_min"]
         if f.get("price_max"): p["maxPrice"] = f["price_max"]
         if f.get("year_min"): p["minYear"] = f["year_min"]
         if f.get("year_max"): p["maxYear"] = f["year_max"]
         if f.get("km_max"): p["maxMileage"] = f["km_max"]
         return p
-    # Kleinanzeigen : sans « locationCode » l'acteur cherche par defaut a Berlin seulement.
-    p = {"proxyConfiguration": _PROXY_DE, "keyword": f"{make} {model}".lower(),
-         "locationCode": "", "radiusKm": 0, "fetchDetails": True, "maxResults": max_results}
-    if f.get("price_min"): p["minPrice"] = f["price_min"]
-    if f.get("price_max"): p["maxPrice"] = f["price_max"]
-    if f.get("year_min"): p["minYear"] = f["year_min"]
-    if f.get("km_max"): p["maxMileage"] = f["km_max"]
-    return p
+    # Kleinanzeigen : on ouvre la page de resultats filtree du site (marque, modele, prix, annee, km),
+    # puis chaque annonce trouvee, avec notre propre extraction (Cheerio Scraper).
+    pages = max(1, -(-max_results // _KLEIN_PER_PAGE))
+    start = [{"url": klein_search_url(make, model, f, page=n),
+              "userData": {"type": "search", "max": min(_KLEIN_PER_PAGE, max_results - (n - 1) * _KLEIN_PER_PAGE)}}
+             for n in range(1, pages + 1)]
+    return _cheerio_payload(start, pages + max_results + 2)
+
+
+def _slug(s: str) -> str:
+    s = (s or "").strip().lower()
+    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ë", "e"), ("é", "e"), ("š", "s"), ("ß", "ss")):
+        s = s.replace(a, b)
+    return re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+
+
+def _klein_model_slug(make: str, model: str) -> str:
+    """Nom du modele tel que Kleinanzeigen l'attend dans ses filtres (ex. Mercedes « C 220 » -> c_klasse)."""
+    if _slug(make) in ("mercedes_benz", "mercedes"):
+        m = re.match(r"\s*([a-zA-Z]+)", model or "")
+        if m:
+            return f"{m.group(1).lower()}_klasse"
+    return _slug(model)
+
+
+def klein_search_url(make: str, model: str, f: dict, page: int = 1) -> str:
+    """Lien de recherche Kleinanzeigen avec les filtres du site (verifie le 05/11/2026) :
+    /s-autos/<marque>/preis:<min>:<max>/c216+autos.ez_i:<annee min>,<annee max>
+    +autos.km_i:<km min>,<km max>+autos.marke_s:<marque>+autos.model_s:<modele>"""
+    mk = _slug(make)
+    if mk == "mercedes":
+        mk = "mercedes_benz"
+    path = f"/s-autos/{mk}"
+    if f.get("price_min") or f.get("price_max"):
+        path += f"/preis:{f.get('price_min') or ''}:{f.get('price_max') or ''}"
+    if page > 1:
+        path += f"/seite:{page}"
+    facets = ["c216"]
+    if f.get("year_min") or f.get("year_max"):
+        facets.append(f"autos.ez_i:{f.get('year_min') or ''}%2C{f.get('year_max') or ''}")
+    if f.get("km_min") or f.get("km_max"):
+        facets.append(f"autos.km_i:{f.get('km_min') or ''}%2C{f.get('km_max') or ''}")
+    facets.append(f"autos.marke_s:{mk}")
+    if model:
+        facets.append(f"autos.model_s:{_klein_model_slug(make, model)}")
+    return f"{_KLEIN_BASE}{path}/{'+'.join(facets)}"
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def model_in_title(make: str, model: str, title: str | None) -> bool:
+    """Le modele demande apparait-il dans le titre ? (« X1 » dans « BMW X1 sDrive18d »)."""
+    t = _norm(title or "")
+    if not t or not model:
+        return True
+    if _norm(model) in t:
+        return True
+    if _slug(make) in ("mercedes_benz", "mercedes"):
+        # « C 220 » accepte « C 220 d », « C220 », « C-Klasse », « C Klasse 200 ».
+        m = re.match(r"\s*([a-zA-Z]+)", model)
+        if not m:
+            return False
+        cls = m.group(1).lower()
+        toks = re.findall(r"[a-z0-9]+", (title or "").lower())
+        for i, tok in enumerate(toks):
+            if tok == f"{cls}klasse" or re.fullmatch(rf"{cls}\d+[a-z]*", tok):
+                return True
+            if tok == cls and i + 1 < len(toks) and (toks[i + 1] == "klasse" or toks[i + 1][0].isdigit()):
+                return True
+    return False
 
 
 def fetch_kleinanzeigen_ad(url: str) -> list[dict]:
     """Lit une seule annonce Kleinanzeigen a partir de son lien."""
-    payload = {
-        "startUrls": [{"url": url}],
-        "pageFunction": _KLEIN_PAGE_FUNCTION,
-        "proxyConfiguration": _PROXY_DE,
-        "maxRequestsPerCrawl": 1,
-        "maxRequestRetries": 2,
-        "maxConcurrency": 1,
-    }
-    items = _post(_CHEERIO, payload)
+    items = _post(_CHEERIO, _cheerio_payload([{"url": url, "userData": {"type": "ad"}}], 1))
     return [it for it in items if isinstance(it, dict) and it.get("title")]
 
 
@@ -350,6 +443,9 @@ def search_source(source, make, model, f: dict | None = None,
     if source == "kleinanzeigen":
         max_results = int(max_results * KLEIN_BOOST)
     items = _post(_ACTORS[source], _payload(source, make, model, f, max_results))
+    if source == "kleinanzeigen":
+        # On ne garde que les pages d'annonce (pas les pages de resultats), dans la limite demandee.
+        items = [it for it in items if isinstance(it, dict) and it.get("title")][:max_results]
     today = date.today()
     limits = [x for x in (f.get("days_max"), max_age_days) if x]
     dm = min(limits) if limits else None
@@ -367,6 +463,9 @@ def search_source(source, make, model, f: dict | None = None,
             continue
         if not _passes(c, f):
             st["hors_criteres"] += 1
+            continue
+        if source == "kleinanzeigen" and not model_in_title(make, model, c.titre):
+            st["hors_criteres"] += 1                 # autre modele de la meme marque
             continue
         c.source = source
         c.date_annonce = d.isoformat() if d else None

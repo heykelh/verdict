@@ -56,10 +56,22 @@ def test_annonce_de_plus_de_30_jours_ecartee_et_entonnoir(monkeypatch):
     assert st["recues"] == 3 and st["retenues"] == 1 and st["illisibles"] == 1
 
 
-def test_kleinanzeigen_toute_l_allemagne_et_filtres():
-    p = ss._payload("kleinanzeigen", "BMW", "X1", {"year_min": 2012, "price_max": 15000}, 20)
-    assert p["locationCode"] == "" and p["minYear"] == 2012 and p["maxPrice"] == 15000
+def test_kleinanzeigen_recherche_par_pages_filtrees():
+    p = ss._payload("kleinanzeigen", "BMW", "X1", {"year_min": 2012, "price_max": 15000}, 36)
+    urls = [u["url"] for u in p["startUrls"]]
+    assert len(urls) == 2 and "ez_i:2012" in urls[0] and "preis::15000" in urls[0]
+    assert "/seite:2/" in urls[1]
+    assert [u["userData"]["max"] for u in p["startUrls"]] == [25, 11]
     assert p["proxyConfiguration"]["apifyProxyGroups"] == ["RESIDENTIAL"]
+    assert ss._ACTORS["kleinanzeigen"] == "apify~cheerio-scraper"
+
+
+def test_kleinanzeigen_pages_de_resultats_ignorees(monkeypatch):
+    annonce = {**KLEIN, "title": "BMW X1 sDrive18d", "url": "a", "condition": "Unfallfrei", "year": 2018}
+    monkeypatch.setattr(ss, "_post", lambda actor, payload, timeout=300: [{"page": "search", "found": 1}, annonce])
+    stats: dict = {}
+    cands, _ = ss.search_all("BMW", "X1", sources=["kleinanzeigen"], stats=stats)
+    assert [c.url for c in cands] == ["a"] and stats["kleinanzeigen"]["recues"] == 1
 
 
 def test_lecture_annonce_kleinanzeigen(monkeypatch):
@@ -77,3 +89,28 @@ def test_lecture_annonce_kleinanzeigen(monkeypatch):
     assert calls["actor"] == "apify~cheerio-scraper" and len(items) == 1
     c = ss.to_candidate(items[0])
     assert (c.prix_eur, c.km, c.annee, c.carburant, c.has_damage, c.hu_ok) == (10799, 175000, 2016, "diesel", False, True)
+
+
+def test_lien_recherche_kleinanzeigen_avec_filtres():
+    u = ss.klein_search_url("BMW", "X1", {"year_min": 2012, "km_max": 150000, "price_min": 5000, "price_max": 20000})
+    assert u == ("https://www.kleinanzeigen.de/s-autos/bmw/preis:5000:20000/c216+autos.ez_i:2012%2C"
+                 "+autos.km_i:%2C150000+autos.marke_s:bmw+autos.model_s:x1")
+    assert ss.klein_search_url("Mercedes-Benz", "C 220", {}).endswith("autos.marke_s:mercedes_benz+autos.model_s:c_klasse")
+    p = ss._payload("kleinanzeigen", "BMW", "X1", {}, 20)
+    assert p["startUrls"][0]["url"].endswith("autos.model_s:x1")
+
+
+def test_modele_dans_le_titre():
+    assert ss.model_in_title("BMW", "X1", "BMW X1 sDrive18d")
+    assert not ss.model_in_title("BMW", "X1", "BMW 320d Touring")
+    assert ss.model_in_title("Mercedes-Benz", "C 220", "Mercedes C-Klasse 220 CDI")
+    assert not ss.model_in_title("Mercedes-Benz", "C 220", "Mercedes-Benz E 220")
+
+
+def test_kleinanzeigen_autre_modele_ecarte(monkeypatch):
+    bon = {**KLEIN, "title": "BMW X1 sDrive18d", "url": "a", "condition": "Unfallfrei", "year": 2018}
+    autre = {**KLEIN, "title": "BMW 320d Touring", "url": "b", "condition": "Unfallfrei", "year": 2018}
+    monkeypatch.setattr(ss, "_post", lambda actor, payload, timeout=300: [bon, autre])
+    stats: dict = {}
+    cands, _ = ss.search_all("BMW", "X1", sources=["kleinanzeigen"], stats=stats)
+    assert [c.url for c in cands] == ["a"] and stats["kleinanzeigen"]["hors_criteres"] == 1

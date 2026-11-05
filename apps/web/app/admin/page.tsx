@@ -117,8 +117,8 @@ function Methode() {
 
       <div style={h}>1. Collecte</div>
       <p style={p}>Pour N annonces demandees, chaque site coche est interroge pour au moins 20 annonces (60 au maximum).
-        Les trois sites recoivent directement vos filtres (budget, annee, km), sur toute l'Allemagne.
-        Kleinanzeigen cherche la marque et le modele dans le titre des annonces, moins precisement que les deux autres : on lui demande 20 % d'annonces en plus.
+        Les trois sites recoivent directement vos filtres (marque, modele, budget, annee, km), sur toute l'Allemagne, les annonces les plus recentes d'abord.
+        Sur Kleinanzeigen, on verifie en plus que le modele figure dans le titre (sinon l'annonce est ecartee), et on demande 20 % d'annonces en plus pour compenser.
         Vos filtres sont de toute facon reverifies ensuite sur chaque annonce.</p>
 
       <div style={h}>2. Annonces ecartees avant le classement</div>

@@ -140,6 +140,15 @@ def _first(item: dict, *keys):
     return None
 
 
+def _text(v) -> str | None:
+    """Texte simple, ou le nom d'un objet {"name": ...} ; None sinon."""
+    if isinstance(v, dict):
+        v = v.get("name") or v.get("label") or v.get("value")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    return None
+
+
 def _image(item: dict) -> str | None:
     one = _first(item, "image", "imageUrl", "image_url", "mainImageUrl", "mainImage",
                  "thumbnailUrl", "thumbnail", "imageLink", "coverImage")
@@ -277,6 +286,9 @@ def to_candidate(item: dict) -> Candidate | None:
         else:
             hd = None
 
+    marque = _text(_first(item, "make", "makeName", "brand", "marke") or attrs.get("Marke"))
+    modele = _text(_first(item, "model", "modelName", "modell") or attrs.get("Modell"))
+
     fuel = str(_first(item, "fuelType", "fuel", "kraftstoff")
                or attrs.get("Kraftstoffart") or "").lower()
     return Candidate(
@@ -293,6 +305,7 @@ def to_candidate(item: dict) -> Candidate | None:
                                     "owners", "vorbesitzer")),
         co2_gkm=_num(_first(item, "co2Emissions", "co2")),
         masse_kg=_num(_first(item, "weightKg", "weight")),
+        marque=marque, modele=modele,
     )
 
 

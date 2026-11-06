@@ -60,3 +60,30 @@ def test_evaluate_from_url_introuvable(monkeypatch):
     r = client.post("/evaluate-from-url",
                     json={"url": "x", "make": "BMW", "model": "320"})
     assert r.status_code == 404
+
+
+def test_market_value(monkeypatch):
+    from verdict_core.market_types import Candidate
+
+    def fake_search_all(make, model, f=None, max_results=40, sources=None, stats=None, max_age_days=None):
+        assert (make, model) == ("BMW", "X1")
+        assert f["year_min"] == 2016 and f["year_max"] == 2020
+        comps = [Candidate(source="autoscout24", prix_eur=18000 - 900 * (2018 - a) - 300 * i, annee=a,
+                           km=60000 + 15000 * i, carburant="diesel", url=f"u{a}{i}")
+                 for a in (2016, 2017, 2018, 2019, 2020) for i in range(3)]
+        return comps, {}
+
+    monkeypatch.setattr(main, "search_all", fake_search_all)
+    r = client.post("/market-value", json={"titre": "BMW X1 sDrive18d", "annee": 2018, "km": 90000,
+                                           "carburant": "diesel", "prix_eur": 15000})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["marque"] == "BMW" and body["n"] == 15
+    assert 15000 < body["estimate"] < 19000
+    assert body["low"] <= body["estimate"] <= body["high"]
+    assert body["ecart_pct"] < 0 and len(body["comparables"]) == 6
+
+
+def test_market_value_modele_inconnu():
+    r = client.post("/market-value", json={"titre": "Super Auto", "annee": 2018, "km": 90000})
+    assert r.status_code == 422

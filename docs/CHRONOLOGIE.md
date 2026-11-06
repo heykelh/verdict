@@ -37,19 +37,20 @@ Pas de donnée inventée : on affiche « données insuffisantes » ou « non com
 
 ---
 
-## 3. Architecture actuelle (04/11/2026)
+## 3. Architecture actuelle (05/11/2026)
 
 Monorepo `verdict` (GitHub `heykelh/verdict`) :
 - `packages/core` — moteur Python : contrats Pydantic, malus 2026, mapping des annonces
-  (`adapters/scrapers/search_sources.py`), note « bon plan » sur 100 et prix de marché estimé (`engine/ranking.py`).
-- `apps/api` — FastAPI : `/health`, `/search`, `/evaluate-url`, `/evaluate`, `/evaluate-from-url`,
+  (`adapters/scrapers/search_sources.py`), note « bon plan » sur 100 (`engine/ranking.py`), prix de marché
+  estimé à partir de comparables (`engine/market_value.py`), marque et modèle lus dans un titre (`vehicle_names.py`).
+- `apps/api` — FastAPI : `/health`, `/search`, `/evaluate-url`, `/market-value`, `/evaluate`, `/evaluate-from-url`,
   `/evaluation/{id}`, `/comparables`, `/debug/raw`.
 - `apps/web` — Next.js 15 / TypeScript :
-  - `app/page.tsx` : accueil AutoVerdict (analyse de lien, bilan, boîte d'erreur détaillée) ;
-  - `app/admin/page.tsx` : outil DJOHN MARA GAMOS ;
+  - `app/page.tsx` : accueil AutoVerdict (analyse de lien, bilan, prix de marché, boîte d'erreur détaillée) ;
+  - `app/admin/page.tsx` : outil DJOHN MARA GAMOS ; `components/PlaqueTool.tsx` + `app/admin/api/plaque/route.ts` : analyse par plaque ;
   - `app/admin/layout.tsx` + `components/ConsoApify.tsx` + `app/admin/api/conso/route.ts` : bouton « Conso Apify » ;
-  - `components/Report.tsx` : bilan ; `lib/scoring.ts` : notes sur 20 ; `lib/reference.ts` : base de prix ;
-  - `lib/engines.ts` (19 familles de moteurs), `lib/critair.ts`, `lib/checks.ts`, `lib/types.ts` ;
+  - `components/Report.tsx` : bilan et rapport PDF ; `lib/scoring.ts` : notes sur 20 ; `lib/reference.ts` : base de prix ;
+  - `lib/engines.ts` (22 moteurs, problèmes sourcés par année), `lib/critair.ts`, `lib/checks.ts`, `lib/types.ts` ;
   - `middleware.ts` : mot de passe sur `/admin/*`.
 - `scripts/build_reference.py` + `.github/workflows/reference.yml` : base de prix de référence (lancement manuel).
 - `docs/` : CHRONOLOGIE (ce fichier), PLAN-ANALYSE, STRATEGIE, STRATEGIE-SAAS, CHANGELOG (historique).
@@ -67,11 +68,13 @@ Hébergement et services :
 Acteurs Apify utilisés :
 - mobile.de : `topapi~mobile-de-listings-scraper`
 - AutoScout24 : `crawloop~autoscout24-scraper`
-- Kleinanzeigen : `benthepythondev~kleinanzeigen-autos-scraper`
+- Kleinanzeigen : `apify~cheerio-scraper` avec notre extraction et un proxy résidentiel allemand
+  (depuis le 05/11 ; avant : `benthepythondev~kleinanzeigen-autos-scraper`, en panne)
 
 Variables d'environnement :
 - Render : `VERDICT_APIFY_TOKEN`, `VERDICT_CORS_ORIGINS`.
-- Vercel : `NEXT_PUBLIC_API_BASE`, `BASIC_AUTH_USER`, `BASIC_AUTH_PASS`, `APIFY_TOKEN` (serveur uniquement, pour le bouton Conso).
+- Vercel : `NEXT_PUBLIC_API_BASE`, `BASIC_AUTH_USER`, `BASIC_AUTH_PASS`, `APIFY_TOKEN` (serveur uniquement, pour le bouton Conso),
+  `PLAQUE_API_TOKEN` (serveur uniquement, pour l'outil plaque).
 - GitHub (secrets Actions) : `VERDICT_APIFY_TOKEN`.
 
 ---
@@ -238,6 +241,56 @@ Variables d'environnement :
 - Reste à faire : Manual Deploy sur Render (active la note sur 100 côté serveur), puis une vraie
   recherche pour vérifier l'entonnoir de Kleinanzeigen ; brancher autoverdicts.com sur Vercel.
 
+### 05/11/2026 — Kleinanzeigen réparé (lecture et recherche)
+- L'acteur tiers `benthepythondev~kleinanzeigen-autos-scraper` plantait à chaque recherche (statut
+  FAILED, ville par défaut Berlin, recherche par mot-clé) et n'acceptait pas les liens d'annonce.
+- Remplacé par l'acteur officiel `apify~cheerio-scraper` avec notre propre extraction et un proxy
+  résidentiel allemand : la recherche ouvre la page de résultats filtrée du site (marque, modèle,
+  prix, année, km), puis chaque annonce (prix, km, année, carburant, puissance, CT, état, date, vendeur).
+- AutoScout24 trié par annonces les plus récentes (il renvoyait surtout des annonces de plus de 30 jours).
+- Panneau Conso Apify détaillé (reste du mois, dépense par jour, par poste et par acteur).
+- Script de test local `scripts/test_kleinanzeigen.py` (recherche ou annonce seule, données brutes
+  dans `data/debug/`). Tests réels : Touran lu correctement, BMW X1 ≥ 2012 : 10 annonces sur 10 retenues.
+- Commits `496190f`, `b730451`.
+
+### 05/11/2026 — Rapport PDF, fiabilité des moteurs sourcée, estimation de prix, outil plaque
+- **Rapport PDF** (accueil) : bouton « Télécharger le rapport (PDF) » ; le bilan est recopié dans une
+  fenêtre au fond blanc mise en page pour l'A4, puis « Enregistrer au format PDF » (ordinateur et mobile).
+  Les liens des sources sont imprimés en clair.
+- **Fiabilité des moteurs** (`apps/web/lib/engines.ts`) : 22 moteurs ; chaque problème n'est retenu que
+  s'il a au moins une source publique cliquable, avec son niveau de preuve (reconnu officiellement :
+  rappel, garantie ou indemnisation du constructeur, décision de justice ; enquête presse ; retours
+  d'usage), sa gravité (majeur / connu) et les années concernées. Un problème ne pénalise que les
+  années concernées (un PureTech de 2023 n'est pas pénalisé pour la courroie 2013-2022). Codes moteur
+  ajoutés pour l'identification par carte grise. Sources vérifiées le 05/11 : extension PureTech
+  10 ans / 175 000 km, chaîne 1.5 BlueHDi (garantie 7 ans / 180 000 km), indemnisation AdBlue
+  Stellantis, rappel 1.0 EcoBoost (NHTSA), chaînes EA111 1.2/1.4 TSI (Auto Bild), à-coups 1.5 TSI evo,
+  accord judiciaire EA888 2e génération, rappel EA189 (KBA), 1.2 TCe H5Ft (UFC-Que Choisir),
+  N47, accord judiciaire N20/N26, injecteurs OM651, 1.6 HDi, 1.5 dCi, 1.6 THP, MultiJet.
+- Note Mécanique (/20) : problème majeur reconnu officiellement −4, majeur −3, connu −1,5, plafonné à −8.
+  Les problèmes de moteur restent affichés sans compter dans la note bon plan /100 de l'admin.
+- **Estimation du prix de marché** (`packages/core/verdict_core/engine/market_value.py`) :
+  comparables du même modèle, sans accidentées, doublons ni prix aberrants, même carburant et
+  puissance ±20 % quand il en reste assez ; régression sur le logarithme du prix (âge, km), pentes
+  bornées, constante par la médiane, deuxième passe sans les annonces trop éloignées ; fourchette du
+  quart le moins cher au quart le plus cher ; confiance élevée / moyenne / faible ; de 3 à 7
+  comparables : médiane ramenée à l'âge et au km (décote standard 9 %/an, 2 %/10 000 km) ; moins de 3 :
+  pas de chiffre. Utilisée par la note bon plan de l'admin (chaque annonce comparée aux autres du lot).
+- **Nouvelle route API `/market-value`** : lit en direct jusqu'à 20 annonces comparables sur
+  AutoScout24 et 20 sur mobile.de (années ±2, km jusqu'à 1,6× + 20 000), puis estime. L'accueil
+  l'appelle juste après l'analyse : la valeur de marché, la fourchette et les 6 annonces les plus
+  proches s'affichent dans le bilan (fini « non disponible pour une annonce seule »).
+- Marque et modèle lus dans les données de l'annonce, sinon dans le titre
+  (`verdict_core/vehicle_names.py`, gère aussi les libellés de carte grise « CLASSE C », « SERIE 3 »).
+- **Outil plaque d'immatriculation** dans `/admin` : plaque → marque, modèle, version, code moteur,
+  puissance, 1re immatriculation (fournisseur API Plaque Immatriculation, données SIV), puis fiabilité
+  du moteur sourcée et prix du marché allemand si le kilométrage est saisi. Route serveur
+  `/admin/api/plaque` protégée par le mot de passe admin ; jeton dans `PLAQUE_API_TOKEN` (Vercel).
+- 73 tests au vert (11 nouveaux).
+- Reste à faire : Manual Deploy Render ; ajouter `PLAQUE_API_TOKEN` dans Vercel (jeton de démo
+  `TokenDemo2026B` pour essayer, puis forfait payant) ; vérifier le coût Apify d'une estimation de prix
+  dans le panneau Conso.
+
 ---
 
 ## 5. Registre des décisions
@@ -258,6 +311,12 @@ Variables d'environnement :
 | 03/11 | Note bon plan sur 100 identique pour les 3 sites, sans la note de prix du site | Kleinanzeigen était désavantagé alors qu'il a souvent les meilleures affaires |
 | 03/11 | Annonces de plus de 30 jours écartées | Une vraie bonne affaire ne reste pas un mois en ligne |
 | 04/11 | Tests lancés seuls avant tout commit | Un push est parti avec 2 tests en échec |
+| 05/11 | Kleinanzeigen lu par Cheerio Scraper (acteur officiel) avec notre extraction | L'acteur tiers échouait à chaque recherche |
+| 05/11 | Un problème moteur n'est retenu qu'avec une source publique et pour ses années | Crédibilité du bilan, pas d'affirmation invérifiable |
+| 05/11 | Prix de marché calculé en direct sur annonces comparables (régression log) | Cote réaliste par âge, km, carburant et puissance, sans base figée |
+| 05/11 | Comparables lus sur AutoScout24 et mobile.de seulement | Kleinanzeigen demande un proxy résidentiel plus cher |
+| 05/11 | Rapport PDF par impression du navigateur | Texte sélectionnable, liens conservés, aucune librairie lourde |
+| 05/11 | Outil plaque réservé à l'admin, fournisseur SIV payant à la requête | Pas de donnée plaque gratuite et légale ; coût maîtrisé |
 
 ---
 
@@ -289,10 +348,14 @@ Variables d'environnement :
 | 02/11 | Onglet Zone DNS d'OVH proposant de « commander » une zone, puis erreur 400 « already exists » | Domaine tout juste acheté, zone en cours d'activation | Ne rien commander, attendre ; serveurs DNS OVH vérifiés |
 | 03/11 | Voitures intactes de Kleinanzeigen marquées accidentées | « unbeschädigt » contient « beschädigt », « unfallfrei » contient « unfall » | Formes saines testées en premier + test automatique |
 | 03/11 | 2 tests API en échec après push (`/evaluate-from-url`, `/evaluation/{id}` en 404) | Routes oubliées dans le `main.py` livré | `main.py` complet rétabli (04/11) ; tests lancés avant tout commit |
+| 05/11 | Analyse d'un lien Kleinanzeigen : erreur 502 | L'acteur Kleinanzeigen n'accepte pas les liens d'annonce | Lecture par Cheerio Scraper |
+| 05/11 | Cheerio Scraper : 403 « full-permission-actor-not-approved » | Acteur à autoriser dans la console Apify | Autorisation donnée dans Apify |
+| 05/11 | Attributs Kleinanzeigen mal lus | Le libellé est un nœud texte, pas une balise | Libellé = texte complet moins la valeur |
+| 05/11 | Rapport PDF aux couleurs de l'écran (texte pâle) | Le style du bilan, recopié dans la page, écrasait le style d'impression | Règle d'impression plus prioritaire, vérifiée sur un PDF généré |
 
 ---
 
-## 7. Coûts mensuels (au 04/11/2026)
+## 7. Coûts mensuels (au 05/11/2026)
 
 | Poste | Coût | Statut |
 |---|---|---|
@@ -302,17 +365,20 @@ Variables d'environnement :
 | Google Play | 25 $ une seule fois | Payé |
 | Apple Developer | 99 $/an | Pas encore |
 | Noms de domaine (OVH) | autoverdicts.com + autoverdicts.fr, environ 10 à 15 €/an chacun | Achetés le 02/11 |
+| API plaque (SIV) | 0 $ (10 requêtes/mois) à 59 $/mois (600 requêtes), dépassement 0,01 $ | Pas encore souscrit |
 
 ---
 
-## 8. État actuel (04/11/2026)
+## 8. État actuel (05/11/2026)
 
-- Accueil AutoVerdict en ligne : analyse de lien, bilan sur 20, exemple, boîte d'erreur détaillée.
+- Accueil AutoVerdict en ligne : analyse de lien, bilan sur 20, prix de marché estimé en direct avec
+  fourchette et annonces comparables, fiabilité du moteur sourcée, rapport PDF, boîte d'erreur détaillée.
+- Outil plaque d'immatriculation dans `/admin` (en attente du jeton `PLAQUE_API_TOKEN`).
 - `/admin` (DJOHN MARA GAMOS) : recherche multi-sites avec note bon plan sur 100 équitable entre les
   sites, méthode affichée, entonnoir par site, date de publication, annonces de plus de 30 jours
   écartées, « 10 de plus » qui conserve la liste, bouton Conso Apify.
 - Base de prix de référence prête mais jamais générée (à lancer à la main depuis l'onglet Actions).
-- Apify payé. **Render à redéployer** (commits `03a3303` et `8d864c6`).
+- Apify payé. Kleinanzeigen réparé. **Render à redéployer** après chaque push touchant l'API.
 - Domaine autoverdicts.com acheté, pas encore branché.
 
 ### Avancement de la phase 0 (voir STRATEGIE-SAAS.md)
@@ -334,12 +400,15 @@ Variables d'environnement :
 - [x] Classement équitable entre les sites + entonnoir par site (03/11).
 - [ ] Intégrer les défauts connus du moteur à la note bon plan (base moteurs à porter côté serveur).
 - [ ] Brancher autoverdicts.com sur Vercel + `VERDICT_CORS_ORIGINS` sur Render ; .fr redirigé vers le .com.
-- [ ] Modèle d'estimation de prix (année, km, puissance, carburant) avec fourchette et fiabilité.
+- [x] Modèle d'estimation de prix (année, km, puissance, carburant) avec fourchette et fiabilité (05/11).
 - [ ] Enregistrement de chaque annonce lue (base Neon) : alimente la cote et l'historique.
 - [ ] Mode saisie manuelle (compléter une annonce, base du Premium).
 - [ ] Scoring vendeur (ancienneté du compte, nombre d'annonces, joker de méfiance).
 - [ ] Comptes (Google + e-mail), crédits, Stripe, pages légales.
-- [ ] Rapport PDF téléchargeable.
+- [x] Rapport PDF téléchargeable (05/11).
+- [x] Fiabilité des moteurs avec sources et niveaux de preuve (05/11).
+- [x] Outil plaque d'immatriculation dans l'admin (05/11, fournisseur à souscrire).
+- [ ] Étendre la base moteurs (Toyota, Hyundai/Kia essence, Opel, Volvo, Mazda...) avec sources.
 - [ ] SEO : rendu serveur de l'accueil, calculateurs gratuits (malus, import, Crit'Air), pages moteurs.
 - [ ] Historique véhicule : lien carVertical / Histovec avec le VIN.
 - [ ] Appli Android (puis iOS), crédits via Google Play, vidéos récompensées.

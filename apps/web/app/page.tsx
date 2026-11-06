@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Candidate } from "@/lib/types";
+import type { Candidate, MarketValue } from "@/lib/types";
 import { bilan } from "@/lib/scoring";
 import { enrichPrice, type PriceRef } from "@/lib/reference";
-import Report from "@/components/Report";
+import Report, { type MarketState } from "@/components/Report";
 
 const BRAND = "AutoVerdict";
 const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
@@ -24,7 +24,7 @@ const SAMPLE: Candidate = {
   cout_pose_estime_eur: 13290, risks: [], score: 0,
 };
 
-const nb = (s: string) => s.replace(/ ([?:;!])/g, "\u00A0$1");
+const nb = (s: string) => s.replace(/ ([?:;!])/g, " $1");
 
 // Erreur d'analyse : une explication claire + le message brut complet pour le diagnostic.
 interface AnalysisError { title: string; explain: string; raw?: string }
@@ -340,8 +340,56 @@ export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLElement>(null);
   const sample = bilan(SAMPLE);
-  // Annonce affichée, complétée par la base de prix de référence quand elle couvre le modèle.
-  const shown = useMemo(() => (c ? enrichPrice(c, ref) : null), [c, ref]);
+  const [market, setMarket] = useState<MarketState | undefined>(undefined);
+  // Annonce affichée, complétée par l'estimation du marché (annonces comparables en direct),
+  // ou à défaut par la base de prix de référence quand elle couvre le modèle.
+  const merged = useMemo(() => {
+    if (!c) return null;
+    const d = market?.data;
+    if (!d || !d.estimate) return c;
+    const ecart = d.ecart_pct ?? null;
+    const risks = [...(c.risks || [])];
+    if (ecart !== null && ecart <= -40 && !risks.some((r) => /anormalement bas/i.test(r))) {
+      risks.push("Prix anormalement bas : risque d'arnaque ou de vice caché");
+    }
+    return {
+      ...c, risks, ecart_marche_pct: ecart, prix_marche_estime_eur: d.estimate,
+      prix_marche_bas_eur: d.low ?? null, prix_marche_haut_eur: d.high ?? null,
+      prix_marche_n: d.n, prix_marche_confiance: d.confidence ?? null,
+    };
+  }, [c, market]);
+  const shown = useMemo(() => (merged ? enrichPrice(merged, ref) : null), [merged, ref]);
+
+  // Prix de marché : recherche d'annonces comparables, lancée dès que l'annonce est lue.
+  async function estimateMarket(cand: Candidate) {
+    setMarket({ state: "loading" });
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 120000);
+    try {
+      // Kleinanzeigen range ses modèles par série (« 3er Reihe ») : le titre est plus précis.
+      const fromKlein = cand.source === "kleinanzeigen";
+      const r = await fetch(`${API}/market-value`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
+        body: JSON.stringify({
+          marque: cand.marque || null, modele: fromKlein ? null : cand.modele || null, titre: cand.titre,
+          annee: cand.annee, km: cand.km, carburant: cand.carburant, puissance_kw: cand.puissance_kw,
+          prix_eur: cand.prix_eur, url: cand.url,
+        }),
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok || !data) {
+        const d = data?.detail;
+        setMarket({ state: "error", error: typeof d === "string" ? d : `HTTP ${r.status}` });
+        return;
+      }
+      setMarket({ state: "done", data: data as MarketValue });
+    } catch (ex: unknown) {
+      const aborted = ex instanceof DOMException && ex.name === "AbortError";
+      setMarket({ state: "error", error: aborted ? "délai dépassé" : "service injoignable" });
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
 
   useEffect(() => {
     fetch("/prix-reference.json").then((r) => (r.ok ? r.json() : null)).then(setRef).catch(() => {});
@@ -378,7 +426,7 @@ export default function Home() {
       setErr({ title: "Lien non valide", explain: "Copiez l'adresse complète de l'annonce : elle commence par https://" });
       return;
     }
-    setLoading(true); setErr(null); setC(null);
+    setLoading(true); setErr(null); setC(null); setMarket(undefined);
     const endpoint = `${API}/evaluate-url`;
     const stamp = new Date().toISOString();
     const ctrl = new AbortController();
@@ -401,7 +449,9 @@ export default function Home() {
         setErr(explainError(500, "réponse non JSON", `${stamp}\nPOST ${endpoint}\nHTTP ${r.status}\n\n${text.slice(0, 2000)}`));
         return;
       }
-      setC(data.candidate || (data as unknown as Candidate));
+      const cand = data.candidate || (data as unknown as Candidate);
+      setC(cand);
+      void estimateMarket(cand);
     } catch (ex: unknown) {
       const aborted = ex instanceof DOMException && ex.name === "AbortError";
       const msg = ex instanceof Error ? `${ex.name}: ${ex.message}` : String(ex);
@@ -471,8 +521,8 @@ export default function Home() {
             <div className="lc-win dark">
               <div className="lc-bar"><i style={{ background: "#FF5F57" }} /><i style={{ background: "#FEBC2E" }} /><i style={{ background: "#28C840" }} /><span>bilan.autoverdict</span></div>
               <div className="lc-win-body">
-                <Report c={shown} animate />
-                <button className="lc-btn light" style={{ marginTop: 36 }} onClick={() => { setC(null); setUrl(""); window.scrollTo({ top: 0, behavior: "smooth" }); inputRef.current?.focus(); }}>
+                <Report c={shown} animate market={market} />
+                <button className="lc-btn light" style={{ marginTop: 36 }} onClick={() => { setC(null); setMarket(undefined); setUrl(""); window.scrollTo({ top: 0, behavior: "smooth" }); inputRef.current?.focus(); }}>
                   Analyser une autre annonce<span className="kbd">A</span>
                 </button>
               </div>

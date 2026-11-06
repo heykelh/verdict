@@ -2,7 +2,7 @@
 // Règle : une note sans données suffisantes vaut null ("Données insuffisantes"),
 // jamais un chiffre inventé.
 import type { Candidate } from "./types";
-import { matchEngines, type EngineNote } from "./engines";
+import { matchEngines, enginePenalty, type EngineNote } from "./engines";
 import { mileageFlag, type MileageFlag } from "./checks";
 import { critAir, type CritAir } from "./critair";
 
@@ -54,12 +54,14 @@ const PRICE_RATING: Record<string, number> = {
   INCREASED_PRICE: 9, HIGH_PRICE: 7, VERY_HIGH_PRICE: 5,
 };
 
+const CONF: Record<string, string> = { elevee: "élevée", moyenne: "moyenne", faible: "faible" };
+
 const filled = (v: unknown) => v !== null && v !== undefined && v !== "";
 
 export function bilan(c: Candidate): Bilan {
   const year = new Date().getFullYear();
   const age = Math.max(0, year - (c.annee || year));
-  const engs = matchEngines(c.titre || "");
+  const engs = matchEngines(c.titre || "", c.annee);
   const mf = mileageFlag(c);
   const ca = critAir(c.carburant, c.annee);
   const kmAn = c.km && age >= 1 ? Math.round(c.km / age) : null;
@@ -70,16 +72,17 @@ export function bilan(c: Candidate): Bilan {
   const pro = /dealer|händler|haendler|gewerb|commercial|company|pro/.test(st);
   const priv = !pro && /priv|particulier/.test(st);
 
-  // Mécanique : réputation du moteur, dommages, âge, kilométrage.
+  // Mécanique : problèmes documentés du moteur pour cette année (sources à l'appui), dommages, âge, km.
+  // Problème majeur reconnu officiellement -4, majeur -3, modéré -1,5 ; plafonné à -8.
   let m = 15;
-  engs.forEach((e) => { m -= 3 * Math.min(e.defauts.length, 2); m -= 0.5 * Math.min(e.vigilance.length, 2); });
+  m -= Math.min(8, engs.reduce((s, e) => s + enginePenalty(e), 0));
   if (c.has_damage) m -= 6;
   if (mf) m -= 2;
   if (age > 15) m -= 2; else if (age > 10) m -= 1;
   const meca: Note = {
     key: "meca", label: "Mécanique", value: clamp(m), verdict: "",
     detail: engs.length
-      ? `Réputation du moteur ${engs[0].label}, âge, kilométrage et dommages déclarés.`
+      ? `Problèmes documentés du moteur ${engs[0].label} pour cette année, âge, kilométrage et dommages déclarés.`
       : "Moteur non identifié dans l'annonce : note fondée sur l'âge, le kilométrage et les dommages.",
     partial: engs.length === 0,
   };
@@ -119,7 +122,13 @@ export function bilan(c: Candidate): Bilan {
   } else {
     pd = "Aucune référence de marché disponible pour cette annonce seule.";
   }
-  const prix: Note = { key: "prix", label: "Prix", value: p === null ? null : clamp(p), verdict: "", detail: pd };
+  if (p !== null && c.prix_marche_n) {
+    pd += ` Estimation tirée de ${c.prix_marche_n} annonces comparables (confiance ${CONF[c.prix_marche_confiance || ""] || "moyenne"}).`;
+  }
+  const prix: Note = {
+    key: "prix", label: "Prix", value: p === null ? null : clamp(p), verdict: "", detail: pd,
+    partial: c.prix_marche_confiance === "faible",
+  };
 
   // Revente : Crit'Air, kilométrage, âge, réputation du moteur.
   let r = 14;
@@ -217,7 +226,7 @@ export function bilan(c: Candidate): Bilan {
 
   // Points de vigilance.
   const vig: string[] = [];
-  engs.forEach((e) => e.defauts.forEach((d) => vig.push(`${e.label} : ${d.charAt(0).toLowerCase()}${d.slice(1)}.`)));
+  engs.forEach((e) => e.problemes.forEach((p) => vig.push(`${e.label} : ${p.texte.charAt(0).toLowerCase()}${p.texte.slice(1)}.`)));
   if (mf) vig.push(mf.level === "warn" ? "Kilométrage très bas pour l'âge : compteur à faire vérifier." : "Kilométrage élevé : usure à contrôler.");
   risks.forEach((x) => vig.push(x.endsWith(".") ? x : `${x}.`));
   if (ratio < 0.6) vig.push("Plusieurs informations n'ont pas été communiquées par le vendeur.");

@@ -1,7 +1,18 @@
 "use client";
-import { useState } from "react";
-import type { Candidate } from "@/lib/types";
+import { useRef, useState } from "react";
+import type { Candidate, MarketValue } from "@/lib/types";
 import { bilan, type Note } from "@/lib/scoring";
+import { PREUVE_LABEL, PREUVE_DETAIL, SOURCES_GENERALES, bestPreuve, type Source } from "@/lib/engines";
+
+// État de l'estimation du prix de marché, lancée juste après l'analyse (annonces comparables en direct).
+export interface MarketState {
+  state: "loading" | "done" | "error";
+  data?: MarketValue;
+  error?: string;
+}
+
+const CONF_LABEL: Record<string, string> = { elevee: "confiance élevée", moyenne: "confiance moyenne", faible: "confiance faible" };
+const SRC_NOM: Record<string, string> = { mobile_de: "mobile.de", autoscout24: "AutoScout24", kleinanzeigen: "Kleinanzeigen" };
 
 const eur = (n: number | null | undefined) =>
   n === null || n === undefined ? "Non disponible" : Math.round(n).toLocaleString("fr-FR") + " €";
@@ -79,6 +90,21 @@ const CSS = `
 .rp-check input:checked::after{content:"";width:5px;height:9px;border:solid #0E1520;border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
 .rp-check input:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 .rp-check.done span{color:var(--fog);text-decoration:line-through}
+.rp-top-actions{display:flex;justify-content:flex-end;gap:12px;align-items:center;margin:-6px 0 18px;flex-wrap:wrap}
+.rp-pdf{font:inherit;font-weight:600;font-size:14px;color:var(--chalk);background:transparent;border:1px solid var(--line);
+  border-radius:999px;padding:9px 16px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}
+.rp-pdf:hover{border-color:var(--signal);color:var(--signal)}
+.rp-pdf:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+.rp-pdf-hint{color:var(--fog);font-size:13px}
+.rp-printonly{display:none}
+.rp-badge{display:inline-block;font-size:12px;font-weight:600;border:1px solid currentColor;border-radius:999px;padding:1px 9px;margin-left:8px;vertical-align:1px}
+.rp-badge.officiel{color:var(--low)} .rp-badge.enquete{color:var(--mid)} .rp-badge.retours{color:var(--fog)}
+.rp-srcs{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:4px;font-size:14px}
+.rp-srcs a{color:var(--signal);text-decoration:underline;text-underline-offset:2px}
+.rp-srcs span{color:var(--fog)}
+.rp-comps{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:6px;font-size:14px}
+.rp-comps a{color:var(--signal)}
+.rp-loading{color:var(--fog);font-style:italic}
 .rp-method{color:var(--fog);font-size:14px;line-height:1.6;max-width:72ch;margin-top:56px;padding-top:22px;border-top:1px solid var(--line)}
 .rp-method p{margin:0 0 10px}
 @media (max-width:860px){
@@ -120,9 +146,45 @@ function Dial({ value, size, stroke, animate, delay = 0 }: { value: number | nul
 }
 
 // Espace insécable avant ? : ; ! (typographie française, évite les signes orphelins en fin de ligne).
-const nb = (s: string) => s.replace(/ ([?:;!])/g, "\u00A0$1");
+const nb = (s: string) => s.replace(/ ([?:;!])/g, " $1");
 
-export default function Report({ c, animate = true }: { c: Candidate; animate?: boolean }) {
+const eurN = (n: number) => Math.round(n).toLocaleString("fr-FR") + " €";
+
+function SourceList({ sources }: { sources: Source[] }) {
+  return (
+    <ul className="rp-srcs">
+      {sources.map((s) => (
+        <li key={s.url}>
+          <a href={s.url} target="_blank" rel="noopener noreferrer">{s.titre}</a>{" "}
+          <span>({s.editeur}{s.date ? `, ${s.date}` : ""} · {PREUVE_LABEL[s.preuve].toLowerCase()})</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// Styles du rapport imprimé : fond blanc, encre sombre, pas d'animation, pas de coupure au milieu d'un bloc.
+const PRINT_CSS = `
+@page{size:A4;margin:14mm 12mm}
+html,body{background:#fff;margin:0}
+html body .rp{--line:#D3DAE3;--track:#E4E9EF;--panel:#F4F6F9;--chalk:#101823;--fog:#4F5D72;--signal:#0B6E99;
+  --good:#16865F;--mid:#A86B00;--low:#C0392B;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-size:12.5px}
+.rp-arc.anim{animation:none!important}
+.rp-noprint{display:none!important}
+.rp-printonly{display:block!important}
+.rp-h{margin-top:30px!important;font-size:21px!important;break-after:avoid}
+.rp-top{grid-template-columns:auto 1fr auto!important;gap:24px!important}
+.rp-photo{width:170px!important;height:120px!important;order:0!important}
+.rp-dials{grid-template-columns:repeat(4,1fr)!important;padding:18px 10px!important}
+.rp-two{grid-template-columns:1fr 1fr!important;gap:28px!important}
+.rp-row{grid-template-columns:200px 1fr!important}
+.rp-row,.rp-bar,.rp-cell,.rp-eng,.rp-check,.rp-list li{break-inside:avoid}
+.rp-srcs a,.rp-comps a{color:var(--signal)}
+.rp-srcs a::after,.rp-comps a::after{content:" — " attr(href);color:var(--fog);font-size:10.5px;word-break:break-all}
+`;
+
+export default function Report({ c, animate = true, market }: { c: Candidate; animate?: boolean; market?: MarketState }) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const raw = bilan(c);
   const b = {
     ...raw, verdict: nb(raw.verdict), resume: nb(raw.resume),
@@ -141,10 +203,50 @@ export default function Report({ c, animate = true }: { c: Candidate; animate?: 
   const sticker = b.critair;
   const vehLine = [String(c.annee), km(c.km), c.carburant, c.puissance_kw ? `${c.puissance_kw} kW` : null]
     .filter(Boolean).join(", ");
+  const mv = market?.data;
+  const today = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+
+  // Rapport PDF : le bilan est recopié dans une fenêtre propre (fond blanc), puis la boîte
+  // d'impression s'ouvre ; choisir « Enregistrer au format PDF ». Fonctionne aussi sur mobile.
+  function downloadPdf() {
+    const node = rootRef.current;
+    if (!node) return;
+    const w = window.open("", "_blank");
+    if (!w) { window.print(); return; }
+    const titre = (c.titre || "vehicule").replace(/[<>&"]/g, "");
+    w.document.open();
+    w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Rapport AutoVerdict - ${titre}</title>`
+      + `<meta name="viewport" content="width=device-width,initial-scale=1"><style>${CSS}${PRINT_CSS}</style></head>`
+      + `<body>${node.outerHTML}</body></html>`);
+    w.document.close();
+    const go = () => { w.focus(); w.print(); };
+    const imgs = Array.from(w.document.images);
+    if (imgs.length === 0) { setTimeout(go, 300); return; }
+    let left = imgs.length;
+    const done1 = () => { left -= 1; if (left <= 0) go(); };
+    imgs.forEach((im) => { if (im.complete) done1(); else { im.onload = done1; im.onerror = done1; } });
+    setTimeout(() => { if (left > 0) { left = 0; go(); } }, 4000);
+  }
 
   return (
-    <div className="rp">
+    <div className="rp" ref={rootRef}>
       <style>{CSS}</style>
+
+      <div className="rp-top-actions rp-noprint">
+        <span className="rp-pdf-hint">Dans la fenêtre qui s'ouvre, choisissez « Enregistrer au format PDF ».</span>
+        <button type="button" className="rp-pdf" onClick={downloadPdf} disabled={market?.state === "loading"}
+          title={market?.state === "loading" ? "Attendez la fin de l'estimation du prix" : "Télécharger le rapport en PDF"}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {market?.state === "loading" ? "Estimation du prix en cours…" : "Télécharger le rapport (PDF)"}
+        </button>
+      </div>
+
+      <div className="rp-printonly" style={{ marginBottom: 18, paddingBottom: 10, borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 16 }}>Rapport AutoVerdict</strong> · édité le {today}
+        {c.url && <div style={{ color: "var(--fog)", fontSize: 11, wordBreak: "break-all" }}>Annonce : {c.url}</div>}
+      </div>
 
       <div className="rp-top">
         <Dial value={b.globale} size={196} stroke={14} animate={animate} />
@@ -207,8 +309,40 @@ export default function Report({ c, animate = true }: { c: Candidate; animate?: 
       <dl className="rp-rows" style={{ marginTop: 18 }}>
         <div className="rp-row"><dt>Prix de l'annonce</dt><dd><b>{eur(c.prix_eur)}</b></dd></div>
         <div className="rp-row"><dt>Valeur de marché estimée</dt><dd>
-          {c.prix_marche_estime_eur ? <b>{eur(c.prix_marche_estime_eur)}</b> : "Non disponible pour une annonce seule"}
-          <span className="rp-sub">Estimée à partir d'annonces comparables, ajustée à l'âge et au kilométrage.</span>
+          {c.prix_marche_estime_eur
+            ? <><b>{eur(c.prix_marche_estime_eur)}</b>
+                {c.ecart_marche_pct !== null && c.ecart_marche_pct !== undefined && (
+                  <span style={{ color: c.ecart_marche_pct <= 0 ? "var(--good)" : "var(--mid)", fontWeight: 600, marginLeft: 10 }}>
+                    {c.ecart_marche_pct <= 0 ? `annonce ${Math.abs(Math.round(c.ecart_marche_pct))} % moins chère` : `annonce ${Math.round(c.ecart_marche_pct)} % plus chère`}
+                  </span>
+                )}</>
+            : market?.state === "loading"
+              ? <span className="rp-loading">Recherche d'annonces comparables en cours (30 à 60 secondes)…</span>
+              : market?.state === "error"
+                ? <span>Estimation impossible pour le moment{market.error ? ` : ${market.error}` : ""}.</span>
+                : mv && mv.estimate === null ? <span>{mv.message || "Pas assez d'annonces comparables."}</span>
+                : "Non disponible"}
+          <span className="rp-sub">
+            {c.prix_marche_bas_eur && c.prix_marche_haut_eur
+              ? `Prix courant pour cette voiture : de ${eur(c.prix_marche_bas_eur)} à ${eur(c.prix_marche_haut_eur)}. `
+              : ""}
+            {c.prix_marche_n
+              ? `Calculé sur ${c.prix_marche_n} annonces comparables en ligne (${mv?.criteres || "même modèle, années et kilométrages proches"}), ${CONF_LABEL[c.prix_marche_confiance || ""] || "confiance moyenne"}, ajusté à l'âge, au kilométrage, au carburant et à la puissance.`
+              : "Estimée à partir d'annonces comparables en ligne, ajustée à l'âge, au kilométrage, au carburant et à la puissance."}
+          </span>
+          {mv?.comparables && mv.comparables.length > 0 && (
+            <>
+              <span className="rp-sub" style={{ marginTop: 10 }}>Annonces les plus proches :</span>
+              <ul className="rp-comps">
+                {mv.comparables.map((x, i) => (
+                  <li key={i}>
+                    {x.url ? <a href={x.url} target="_blank" rel="noopener noreferrer">{eurN(x.prix_eur)}</a> : <b>{eurN(x.prix_eur)}</b>}
+                    {" "}· {x.annee} · {x.km.toLocaleString("fr-FR")} km{x.puissance_kw ? ` · ${x.puissance_kw} kW` : ""} · {SRC_NOM[x.source] || x.source}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </dd></div>
         <div className="rp-row"><dt>Coût une fois immatriculée en France</dt><dd>
           <b>{c.cout_pose_estime_eur ? `environ ${eur(c.cout_pose_estime_eur)}` : "Non disponible"}</b>
@@ -242,19 +376,39 @@ export default function Report({ c, animate = true }: { c: Candidate; animate?: 
         </dd></div>
       </dl>
 
-      <h3 className="rp-h">Motorisation</h3>
+      <h3 className="rp-h">Motorisation et fiabilité</h3>
       {b.engines.length === 0 ? (
-        <p className="rp-hint">Le moteur n'a pas pu être identifié à partir du titre de l'annonce. Précisez-le au vendeur pour connaître ses défauts connus.</p>
-      ) : b.engines.map((e) => (
-        <div key={e.id} className="rp-eng">
-          <h3>{e.label}</h3>
-          <dl className="rp-rows">
-            {e.avantages.map((t, i) => <div className="rp-row" key={"a" + i}><dt><span className="rp-tag g">Point fort</span></dt><dd>{t}.</dd></div>)}
-            {e.defauts.map((t, i) => <div className="rp-row" key={"d" + i}><dt><span className="rp-tag r">Défaut connu</span></dt><dd>{t}.</dd></div>)}
-            {e.vigilance.map((t, i) => <div className="rp-row" key={"v" + i}><dt><span className="rp-tag a">Point de vigilance</span></dt><dd>{t}.</dd></div>)}
-          </dl>
-        </div>
-      ))}
+        <p className="rp-hint">Le moteur n'a pas pu être identifié à partir du titre de l'annonce. Demandez au vendeur le code moteur (carte grise, carnet d'entretien) pour connaître ses problèmes connus.</p>
+      ) : (
+        <>
+          <p className="rp-hint">Seuls les problèmes appuyés par une source publique sont retenus, pour l'année de cette voiture. Niveaux de preuve : {PREUVE_LABEL.officiel.toLowerCase()} ({PREUVE_DETAIL.officiel}), {PREUVE_LABEL.enquete.toLowerCase()}, {PREUVE_LABEL.retours.toLowerCase()}.</p>
+          {b.engines.map((e) => (
+            <div key={e.id} className="rp-eng">
+              <h3>{e.label}</h3>
+              <dl className="rp-rows">
+                {e.avantages.map((t, i) => <div className="rp-row" key={"a" + i}><dt><span className="rp-tag g">Point fort</span></dt><dd>{t}.</dd></div>)}
+                {e.problemes.length === 0 && (
+                  <div className="rp-row"><dt><span className="rp-tag g">Problème documenté</span></dt><dd>Aucun problème grave documenté pour cette année.</dd></div>
+                )}
+                {e.problemes.map((p, i) => {
+                  const lvl = bestPreuve(p);
+                  return (
+                    <div className="rp-row" key={"p" + i}>
+                      <dt><span className={p.gravite === "majeur" ? "rp-tag r" : "rp-tag a"}>{p.gravite === "majeur" ? "Problème majeur" : "Problème connu"}</span></dt>
+                      <dd>
+                        {p.texte}.{p.de ? <span style={{ color: "var(--fog)" }}> Concerne {p.a && p.a !== p.de ? `${p.de} à ${p.a}` : p.de}.</span> : null}
+                        <span className={`rp-badge ${lvl}`}>{PREUVE_LABEL[lvl]}</span>
+                        <SourceList sources={p.sources} />
+                      </dd>
+                    </div>
+                  );
+                })}
+                {e.vigilance.map((t, i) => <div className="rp-row" key={"v" + i}><dt><span className="rp-tag a">Point de vigilance</span></dt><dd>{t}.</dd></div>)}
+              </dl>
+            </div>
+          ))}
+        </>
+      )}
 
       <h3 className="rp-h">Questions à poser au vendeur</h3>
       <ul className="rp-list" style={{ marginTop: 18 }}>{b.questions.map((q, i) => <li key={i}>{q}</li>)}</ul>
@@ -271,8 +425,11 @@ export default function Report({ c, animate = true }: { c: Candidate; animate?: 
       </div>
 
       <div className="rp-method">
-        <p><strong style={{ color: "var(--chalk)", fontWeight: 600 }}>Comment les notes sont calculées.</strong> Chaque note sur 20 applique des règles fixes et identiques pour toutes les annonces : réputation documentée du moteur, âge, kilométrage, complétude de l'annonce, contrôle technique, dommages déclarés, Crit'Air, et évaluation de prix quand elle existe. La note globale est une moyenne pondérée des seules notes évaluées.</p>
+        <p><strong style={{ color: "var(--chalk)", fontWeight: 600 }}>Comment les notes sont calculées.</strong> Chaque note sur 20 applique des règles fixes et identiques pour toutes les annonces : problèmes documentés et sourcés du moteur, âge, kilométrage, complétude de l'annonce, contrôle technique, dommages déclarés, Crit'Air, et évaluation de prix quand elle existe. La note globale est une moyenne pondérée des seules notes évaluées.</p>
+        <p>Le prix de marché est calculé en direct sur des annonces comparables (même modèle, carburant et puissance proches, années et kilométrages voisins), sans les annonces accidentées, en doublon ou aberrantes : une régression sur l'âge et le kilométrage donne le prix attendu pour cette voiture, et la fourchette correspond au prix courant, du quart le moins cher au quart le plus cher.</p>
         <p>Les données viennent de l'annonce, donc du vendeur, et ne sont pas vérifiées. Ce bilan est indicatif : ce n'est ni une expertise ni un conseil d'achat, et il ne remplace pas vos propres vérifications.</p>
+        <p style={{ marginBottom: 4 }}>Pour vérifier les rappels et la fiabilité d'un modèle :</p>
+        <SourceList sources={SOURCES_GENERALES} />
       </div>
     </div>
   );

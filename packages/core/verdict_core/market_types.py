@@ -56,6 +56,13 @@ class Candidate(BaseModel):
     masse_kg: int | None = None
     ecart_marche_pct: float | None = None
     prix_marche_estime_eur: float | None = None
+    # Fourchette du marche (quart le moins cher / quart le plus cher), nombre de comparables, confiance.
+    prix_marche_bas_eur: float | None = None
+    prix_marche_haut_eur: float | None = None
+    prix_marche_n: int | None = None
+    prix_marche_confiance: str | None = None
+    marque: str | None = None
+    modele: str | None = None
     date_annonce: str | None = None
     cout_pose_estime_eur: float | None = None
     risks: list[str] = Field(default_factory=list)

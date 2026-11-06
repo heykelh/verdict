@@ -16,10 +16,12 @@ from verdict_core.adapters.scrapers.search_sources import (
 from verdict_core.cli import run
 from verdict_core.config import settings
 from verdict_core.engine.malus import malus_co2, malus_poids, refaction_occasion
+from verdict_core.engine.market_value import estimate_value
 from verdict_core.engine.ranking import rank_candidates
-from verdict_core.market_types import SearchCriteria
+from verdict_core.market_types import Candidate, SearchCriteria
 from verdict_core.reference import load_malus
 from verdict_core.repository import FileEvaluationRepository
+from verdict_core.vehicle_names import guess_make_model
 
 from .schemas import (
     CarSearchRequest, ComparablesRequest, ComparablesResponse,
@@ -139,9 +141,62 @@ def evaluate_url(req: dict):
     c.date_annonce = d.isoformat() if d else None
     c.cout_pose_estime_eur = _cout_pose(c)
     rank_candidates([c])                 # risques intrinseques (accident, CT, vendeur...)
-    c.prix_marche_estime_eur = None      # pas de comparaison marche sur une annonce isolee
+    c.prix_marche_estime_eur = None      # estime ensuite par /market-value (appele par le site)
     c.ecart_marche_pct = None
     return {"candidate": c.model_dump()}
+
+
+# Sites interroges pour les comparables : les deux qui filtrent marque et modele a la source
+# (Kleinanzeigen demande un proxy residentiel, plus cher, pour un apport faible ici).
+_MARKET_SOURCES = ["autoscout24", "mobile_de"]
+_MARKET_PER_SITE = 20
+
+
+@app.post("/market-value")
+def market_value(req: dict):
+    """Prix de marche estime d'une voiture a partir d'annonces comparables lues en direct.
+
+    Corps : annee et km obligatoires ; marque et modele, ou a defaut le titre de l'annonce ;
+    carburant, puissance_kw, prix_eur et url facultatifs (le prix sert a calculer l'ecart)."""
+    try:
+        annee = int(req.get("annee") or 0)
+        km = int(req.get("km") or 0)
+    except (TypeError, ValueError):
+        annee, km = 0, 0
+    if annee < 1980 or km < 0:
+        raise HTTPException(status_code=422, detail="Annee et kilometrage necessaires.")
+    make, model = req.get("marque") or req.get("make"), req.get("modele") or req.get("model")
+    if not (make and model):
+        gm, gmod = guess_make_model(req.get("titre"))
+        make, model = make or gm, model or gmod
+    if not (make and model):
+        raise HTTPException(status_code=422, detail="Marque ou modele non reconnus dans le titre de l'annonce.")
+
+    f = {"year_min": annee - 2, "year_max": annee + 2, "km_max": int(km * 1.6 + 20000)}
+    comps, errors = search_all(make, model, f=f, max_results=_MARKET_PER_SITE,
+                               sources=_MARKET_SOURCES, max_age_days=None)
+    prix = float(req.get("prix_eur") or 0)
+    target = Candidate(
+        source="cible", url=req.get("url"), titre=req.get("titre"), prix_eur=prix or 1.0,
+        km=km, annee=annee, carburant=req.get("carburant"),
+        puissance_kw=int(req["puissance_kw"]) if req.get("puissance_kw") else None,
+    )
+    v = estimate_value(target, comps)
+    base = {"marque": make, "modele": model, "lues": len(comps), "errors": errors,
+            "criteres": f"{make} {model}, {annee - 2} a {annee + 2}, jusqu'a {f['km_max']:,} km".replace(",", " ")}
+    if v is None:
+        return {**base, "estimate": None, "n": len({(c.annee, c.km, c.prix_eur) for c in comps}),
+                "message": "Pas assez d'annonces comparables en ligne pour estimer un prix fiable."}
+    ecart = round((prix - v.estimate) / v.estimate * 100, 1) if prix > 0 else None
+    return {
+        **base, "estimate": v.estimate, "low": v.low, "high": v.high, "n": v.n,
+        "confidence": v.confidence, "method": v.method, "ecart_pct": ecart,
+        "comparables": [
+            {"titre": c.titre, "url": c.url, "source": c.source, "prix_eur": c.prix_eur,
+             "km": c.km, "annee": c.annee, "carburant": c.carburant, "puissance_kw": c.puissance_kw}
+            for c in v.comparables
+        ],
+    }
 
 
 @app.get("/debug/raw")

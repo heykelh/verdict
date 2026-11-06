@@ -2,7 +2,8 @@
 import { useState, useEffect } from "react";
 import type { Candidate, SearchResults } from "@/lib/types";
 import { VEHICLES } from "@/lib/vehicles";
-import { matchEngines } from "@/lib/engines";
+import { matchEngines, bestPreuve, PREUVE_LABEL } from "@/lib/engines";
+import PlaqueTool from "@/components/PlaqueTool";
 import { mileageFlag } from "@/lib/checks";
 
 const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
@@ -130,9 +131,12 @@ function Methode() {
       </ul>
 
       <div style={h}>3. Prix du marche estime</div>
-      <p style={p}>Pour chaque voiture, on estime le prix normal pour son age et son kilometrage, a partir des autres annonces non accidentees de la meme recherche
-        (formule prix = base + effet de l'age + effet du kilometrage, bornee entre 50 % et 180 % du prix median). Avec moins de 6 annonces, on prend le prix median.
-        L'ecart a ce prix est la base du critere Prix.</p>
+      <p style={p}>Pour chaque voiture, on estime le prix normal pour son age et son kilometrage, a partir des AUTRES annonces de la meme recherche :
+        sans les accidentees, les doublons et les prix aberrants, avec le meme carburant et une puissance proche (+/- 20 %) quand il en reste assez.
+        Calcul sur le logarithme du prix (une voiture perd un pourcentage par an, pas un montant fixe) : regression sur l'age et le kilometrage,
+        corrigee des annonces trop eloignees, bornee entre 50 % et 180 % du prix median. De 3 a 7 comparables : mediane ramenee a l'age et au km
+        (decote standard 9 %/an et 2 %/10 000 km), confiance faible. Moins de 3 : prix median du lot.
+        L'ecart a ce prix est la base du critere Prix. La fourchette affichee va du quart le moins cher au quart le plus cher des annonces equivalentes.</p>
 
       <div style={h}>4. Note bon plan sur 100</div>
       <div style={{ overflowX: "auto" }}>
@@ -157,7 +161,7 @@ function Methode() {
       <div style={h}>5. Classement et badges</div>
       <p style={p}>Les N annonces avec la meilleure note sont affichees. Badges : <b>Bon plan</b> a partir de 70/100, <b>Correct</b> de 55 a 69, <b>Moyen</b> en dessous,
         <b> A eviter</b> si la voiture est accidentee ou si le prix est suspect. <b>MAX VALUE</b> : entre 35 % et 40 % sous le marche.</p>
-      <p style={{ ...hint, marginTop: 8 }}>Limite : le prix du marche est compare aux annonces de la meme recherche, pas a une cote officielle. Les defauts connus du moteur sont affiches mais pas encore integres a la note.</p>
+      <p style={{ ...hint, marginTop: 8 }}>Limite : le prix du marche est compare aux annonces de la meme recherche, pas a une cote officielle. Les problemes de moteur documentes (avec leurs sources, selon l'annee) sont affiches sur chaque annonce mais ne comptent pas dans la note bon plan.</p>
     </details>
   );
 }
@@ -178,7 +182,7 @@ function sortCands(list: Candidate[], key: string): Candidate[] {
 function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback: string }) {
   const VIOLET = "#a435f0";
   const b = dealBadge(c);
-  const engs = matchEngines(c.titre || "");
+  const engs = matchEngines(c.titre || "", c.annee);
   const mf = mileageFlag(c);
   const ec = c.ecart_marche_pct;
   const maxValue = ec !== null && ec !== undefined && ec <= -35 && ec > -40;
@@ -253,7 +257,16 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
           <div key={e.id} style={{ marginTop: 8, background: "#e4d9b5", border: `1px solid ${INK}`, borderRadius: 3, padding: "6px 9px", fontSize: 12, lineHeight: 1.45 }}>
             <div style={{ fontFamily: '"Anton", sans-serif', letterSpacing: 0.4 }}>{e.label}</div>
             {e.avantages.length > 0 && <div><span style={{ color: GREEN, fontWeight: 700 }}>Point fort : </span>{e.avantages.join(" ; ")}</div>}
-            {e.defauts.length > 0 && <div><span style={{ color: RED, fontWeight: 700 }}>Defaut : </span>{e.defauts.join(" ; ")}</div>}
+            {e.problemes.map((p, i) => (
+              <div key={i}>
+                <span style={{ color: p.gravite === "majeur" ? RED : OCRE, fontWeight: 700 }}>{p.gravite === "majeur" ? "Probleme majeur" : "Probleme connu"} : </span>
+                {p.texte}{p.de ? ` (${p.a && p.a !== p.de ? `${p.de} a ${p.a}` : p.de})` : ""}
+                {" "}<span style={{ fontSize: 10.5, fontWeight: 700, border: `1px solid ${INK}`, borderRadius: 3, padding: "0 4px" }}>{PREUVE_LABEL[bestPreuve(p)]}</span>
+                {" "}{p.sources.map((s, j) => (
+                  <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" title={`${s.titre} (${s.editeur})`} style={{ color: BLUE, marginLeft: 3 }}>[{j + 1}]</a>
+                ))}
+              </div>
+            ))}
             {e.vigilance.length > 0 && <div><span style={{ color: OCRE, fontWeight: 700 }}>Vigilance : </span>{e.vigilance.join(" ; ")}</div>}
           </div>
         ))}
@@ -264,7 +277,14 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
         {marche !== null && (
           <div style={{ fontSize: 11.5, color: INK, marginTop: 6 }}>
             Prix du marche estime ~{eur(marche)}
-            <div style={{ fontSize: 10, color: "#6a5a2a" }}>(ajuste a l'age et au kilometrage)</div>
+            {c.prix_marche_bas_eur && c.prix_marche_haut_eur ? (
+              <div style={{ fontSize: 10.5, color: "#6a5a2a" }}>
+                fourchette {eur(c.prix_marche_bas_eur)} a {eur(c.prix_marche_haut_eur)}
+                {c.prix_marche_n ? ` · ${c.prix_marche_n} comparables` : ""}{c.prix_marche_confiance ? ` · confiance ${c.prix_marche_confiance}` : ""}
+              </div>
+            ) : (
+              <div style={{ fontSize: 10, color: "#6a5a2a" }}>(ajuste a l'age et au kilometrage)</div>
+            )}
           </div>
         )}
         {ec !== null && ec !== undefined && (
@@ -453,6 +473,8 @@ export default function Home() {
       </div>
 
       <Methode />
+
+      <PlaqueTool />
 
       {/* Loader pendant la recherche */}
       {loading && (

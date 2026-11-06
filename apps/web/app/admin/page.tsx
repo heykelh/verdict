@@ -99,7 +99,7 @@ function dealBadge(c: Candidate): { t: string; col: string } {
   if (grave) return { t: "A eviter", col: RED };
   if (c.score >= 70) return { t: "Bon plan", col: GREEN };
   if (c.score >= 55) return { t: "Correct", col: OCRE };
-  return { t: "Moyen", col: "#7a6a2f" };
+  return { t: "Moyen", col: "#c65d12" };
 }
 
 // Explication complete et exacte du choix des annonces (a garder alignee sur ranking.py et search_sources.py).
@@ -159,8 +159,10 @@ function Methode() {
       <p style={p}><b>Note du site</b> (« Sehr guter Preis »...) : affichee sur la fiche pour information, mais <b>elle ne compte pas</b> dans la note, car Kleinanzeigen n'en a pas.</p>
 
       <div style={h}>5. Classement et badges</div>
-      <p style={p}>Les N annonces avec la meilleure note sont affichees. Badges : <b>Bon plan</b> a partir de 70/100, <b>Correct</b> de 55 a 69, <b>Moyen</b> en dessous,
-        <b> A eviter</b> si la voiture est accidentee ou si le prix est suspect. <b>MAX VALUE</b> : entre 35 % et 40 % sous le marche.</p>
+      <p style={p}>Les N annonces avec la meilleure note sont affichees. La note est affichee en grand sous la photo, en couleur :
+        <b style={{ color: GREEN }}> vert Bon plan</b> a partir de 70/100, <b style={{ color: OCRE }}>ocre Correct</b> de 55 a 69,
+        <b style={{ color: "#c65d12" }}> orange Moyen</b> en dessous, <b style={{ color: RED }}>rouge A eviter</b> si la voiture est accidentee ou si le prix est suspect.
+        <b> MAX VALUE</b> (violet) : entre 35 % et 40 % sous le marche.</p>
       <p style={{ ...hint, marginTop: 8 }}>Limite : le prix du marche est compare aux annonces de la meme recherche, pas a une cote officielle. Les problemes de moteur documentes (avec leurs sources, selon l'annee) sont affiches sur chaque annonce mais ne comptent pas dans la note bon plan.</p>
     </details>
   );
@@ -191,10 +193,27 @@ function CandCard({ c, rank, fallback }: { c: Candidate; rank: number; fallback:
   return (
     <div style={{ ...panel, display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 22, color: GOLD, minWidth: 30, textShadow: "2px 2px 0 #000" }}>#{rank}</div>
-      {c.image && (
-        <img src={c.image} alt="" loading="lazy"
-          style={{ width: 110, height: 82, objectFit: "cover", border: `2px solid ${INK}`, borderRadius: 3, flex: "0 0 auto" }} />
-      )}
+      <div style={{ width: 118, flex: "0 0 auto", display: "flex", flexDirection: "column", gap: 6 }}>
+        {c.image ? (
+          <img src={c.image} alt="" loading="lazy"
+            style={{ width: 118, height: 88, objectFit: "cover", border: `2px solid ${INK}`, borderRadius: 3 }} />
+        ) : (
+          <div style={{ width: 118, height: 88, border: `2px dashed ${INK}`, borderRadius: 3, display: "grid", placeItems: "center", fontSize: 11, color: "#6b6246" }}>Pas de photo</div>
+        )}
+        {/* Note bon plan : couleur selon le seuil (vert >= 70, ocre 55-69, orange < 55, rouge si a eviter). */}
+        <div title={`Note bon plan : ${fmt(c.score)} sur 100 (${b.t})`} style={{
+          background: b.col, color: "#fff", border: `2px solid ${INK}`, borderRadius: 3,
+          textAlign: "center", padding: "4px 2px 5px", boxShadow: "2px 2px 0 rgba(0,0,0,0.4)",
+        }}>
+          <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 26, lineHeight: 1, textShadow: "1px 1px 0 #000" }}>
+            {Math.round(c.score)}<span style={{ fontSize: 13 }}>/100</span>
+          </div>
+          <div style={{ fontFamily: '"Anton", sans-serif', fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 2 }}>{b.t}</div>
+        </div>
+        <div style={{ height: 6, background: "#d8cba0", border: `1px solid ${INK}`, borderRadius: 3, overflow: "hidden" }} aria-hidden="true">
+          <div style={{ width: `${Math.max(0, Math.min(100, c.score))}%`, height: "100%", background: b.col }} />
+        </div>
+      </div>
       <div style={{ flex: "1 1 180px" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{

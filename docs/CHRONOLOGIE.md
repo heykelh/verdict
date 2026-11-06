@@ -37,7 +37,7 @@ Pas de donnée inventée : on affiche « données insuffisantes » ou « non com
 
 ---
 
-## 3. Architecture actuelle (05/11/2026)
+## 3. Architecture actuelle (06/11/2026)
 
 Monorepo `verdict` (GitHub `heykelh/verdict`) :
 - `packages/core` — moteur Python : contrats Pydantic, malus 2026, mapping des annonces
@@ -51,9 +51,10 @@ Monorepo `verdict` (GitHub `heykelh/verdict`) :
   - `app/admin/layout.tsx` + `components/ConsoApify.tsx` + `app/admin/api/conso/route.ts` : bouton « Conso Apify » ;
   - `components/Report.tsx` : bilan et rapport PDF ; `lib/scoring.ts` : notes sur 20 ; `lib/reference.ts` : base de prix ;
   - `lib/engines.ts` (22 moteurs, problèmes sourcés par année), `lib/critair.ts`, `lib/checks.ts`, `lib/types.ts` ;
-  - `middleware.ts` : mot de passe sur `/admin/*`.
+  - `middleware.ts` : identifiant et mot de passe sur tout le site.
 - `scripts/build_reference.py` + `.github/workflows/reference.yml` : base de prix de référence (lancement manuel).
 - `docs/` : CHRONOLOGIE (ce fichier), PLAN-ANALYSE, STRATEGIE, STRATEGIE-SAAS, CHANGELOG (historique).
+- Dossier client (cadrage, cahier des charges V1/V2/V3, modélisation) : document Claude partagé, hors repo.
 
 Hébergement et services :
 
@@ -291,6 +292,22 @@ Variables d'environnement :
   `TokenDemo2026B` pour essayer, puis forfait payant) ; vérifier le coût Apify d'une estimation de prix
   dans le panneau Conso.
 
+### 06/11/2026 — Note bon plan en couleur, mot de passe sur tout le site, dossier client
+- **Note bon plan sous la photo** (admin) : grand bloc « 72/100 » + badge et jauge, en couleur selon le
+  seuil : vert Bon plan (≥ 70), ocre Correct (55-69), orange Moyen (< 55), rouge À éviter (accident ou
+  prix suspect). Case « Pas de photo » quand l'annonce n'en a pas. Méthode de l'admin mise à jour.
+- **Tout le site sous identifiant et mot de passe** (`middleware.ts`) : accueil, `/admin`, routes
+  `/admin/api/*` et fichiers publics ; seuls les fichiers techniques de Next.js et l'icône restent libres.
+  En ligne, si `BASIC_AUTH_USER` ou `BASIC_AUTH_PASS` manque, le site est fermé (503) au lieu d'être
+  ouvert. Mot de passe pouvant contenir « : », comparaison en temps constant, pages non indexées
+  (`X-Robots-Tag: noindex`). Vérifié en local : 401 sans identifiants ou avec un mauvais mot de passe.
+- **Dossier client** rédigé du point de vue du client (document Claude, hors repo) : lettre de demande,
+  compte rendu des 5 ateliers de cadrage (22/10 → 05/11), cahier des charges en 3 versions (V1 base,
+  V2 SaaS, V3 évoluée) avec exigences numérotées, modélisation des données métier (schéma des
+  entités) et règles de calcul en Python, critères de recette, planning, budget, validation.
+- Reste à faire : vérifier que `BASIC_AUTH_USER` et `BASIC_AUTH_PASS` sont bien définis dans Vercel
+  pour Production **avant** de pousser (sinon le site affiche « Site fermé »).
+
 ---
 
 ## 5. Registre des décisions
@@ -317,6 +334,8 @@ Variables d'environnement :
 | 05/11 | Comparables lus sur AutoScout24 et mobile.de seulement | Kleinanzeigen demande un proxy résidentiel plus cher |
 | 05/11 | Rapport PDF par impression du navigateur | Texte sélectionnable, liens conservés, aucune librairie lourde |
 | 05/11 | Outil plaque réservé à l'admin, fournisseur SIV payant à la requête | Pas de donnée plaque gratuite et légale ; coût maîtrisé |
+| 06/11 | Tout le site sous mot de passe, fermé si les identifiants manquent | Prudence tant que le produit n'est pas lancé |
+| 06/11 | Couleurs de la note : vert, ocre, orange, rouge | Lecture immédiate de la qualité de l'affaire |
 
 ---
 
@@ -369,8 +388,9 @@ Variables d'environnement :
 
 ---
 
-## 8. État actuel (05/11/2026)
+## 8. État actuel (06/11/2026)
 
+- Tout le site protégé par identifiant et mot de passe (depuis le 06/11).
 - Accueil AutoVerdict en ligne : analyse de lien, bilan sur 20, prix de marché estimé en direct avec
   fourchette et annonces comparables, fiabilité du moteur sourcée, rapport PDF, boîte d'erreur détaillée.
 - Outil plaque d'immatriculation dans `/admin` (en attente du jeton `PLAQUE_API_TOKEN`).

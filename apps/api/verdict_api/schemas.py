@@ -73,3 +73,5 @@ class CarSearchRequest(BaseModel):
     days_max: int | None = None
     limit: int = 10
     sources: list[str] | None = None
+    # Marche quand aucun site n'est coche : « de » (Allemagne, par defaut) ou « fr » (France).
+    market: str | None = None

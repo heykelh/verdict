@@ -4,6 +4,7 @@ import type { Candidate, MarketValue } from "@/lib/types";
 import { bilan } from "@/lib/scoring";
 import { enrichPrice, type PriceRef } from "@/lib/reference";
 import Report, { type MarketState } from "@/components/Report";
+import { marketOf } from "@/lib/markets";
 
 const BRAND = "AutoVerdict";
 const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
@@ -39,7 +40,7 @@ function explainError(status: number | null, detail: string, raw: string): Analy
     return { title: "Serveur d'analyse injoignable", raw,
       explain: "Le navigateur n'a pas pu joindre le serveur. Il se met en veille quand personne ne l'utilise (30 à 60 secondes pour redémarrer), il peut être hors ligne, ou ce site n'est pas autorisé à l'appeler (CORS). Réessayez dans un instant ; si ça persiste, ouvrez le message complet." };
   }
-  if (status === 400) return { title: "Lien non reconnu", raw, explain: "Seules les annonces mobile.de, AutoScout24 et Kleinanzeigen sont prises en charge. Vérifiez que vous avez copié l'adresse complète de l'annonce." };
+  if (status === 400) return { title: "Lien non reconnu", raw, explain: "Sont prises en charge les annonces Leboncoin, La Centrale et AutoScout24 (France), ainsi que mobile.de, AutoScout24 et Kleinanzeigen (Allemagne). Vérifiez que vous avez copié l'adresse complète de l'annonce." };
   if (status === 404) return { title: "Annonce introuvable", raw, explain: "La page de l'annonce n'a pas pu être lue : elle a peut-être été supprimée ou vendue, ou le site a changé sa présentation." };
   if (status === 422) return { title: "Annonce incomplète", raw, explain: "L'annonce a été lue, mais il manque le prix, le kilométrage ou l'année : impossible de faire le bilan." };
   if (status === 502) return { title: "Récupération de l'annonce impossible", raw, explain: "Le service qui lit les annonces a renvoyé une erreur. Le message complet ci-dessous indique laquelle." };
@@ -70,9 +71,10 @@ function ErrorBox({ err }: { err: AnalysisError }) {
 const FAQ: [string, string][] = [
   ["Les notes sont-elles fiables ?", "Elles appliquent des règles fixes, identiques pour toutes les annonces, à partir de ce que déclare le vendeur. Elles ne remplacent ni un essai ni une inspection : elles vous disent où regarder."],
   ["Pourquoi certaines notes affichent un point d'interrogation ?", "Parce que l'annonce ne donne pas assez d'informations. Plutôt que d'inventer un chiffre, le bilan l'indique, et la note globale ne compte que les critères réellement évalués."],
-  ["Comment est calculé le coût une fois en France ?", "Prix d'achat, plus un forfait de frais d'import (transport, quitus fiscal, carte grise), plus le malus écologique 2026 selon le CO2 et le poids, avec la réduction liée à l'âge du véhicule."],
+  ["Comment est calculé le coût une fois en France ?", "Pour une annonce allemande : prix d'achat, plus un forfait de frais d'import (transport, quitus fiscal, carte grise), plus le malus écologique 2026 selon le CO2 et le poids, avec la réduction liée à l'âge du véhicule. Pour une annonce française, la voiture est déjà immatriculée : ni import ni malus, seulement la carte grise de changement de titulaire."],
+  ["Comment le moteur est-il identifié ?", "D'abord par des règles fixes : le carburant, la puissance, l'année et le modèle suffisent souvent (une Clio 4 essence de 90 ch est forcément un 0.9 TCe). Ensuite, une analyse par IA consulte des fiches techniques publiques pour confirmer le moteur exact, sa génération et ses problèmes connus pour cette année, avec les sources. L'IA explique, mais n'entre pas dans les notes."],
   ["Le Crit'Air affiché est-il officiel ?", "C'est une estimation à partir du carburant et de l'année de première immatriculation. La classe exacte figure sur le certificat d'immatriculation."],
-  ["Quels sites sont pris en charge ?", "mobile.de, AutoScout24 et Kleinanzeigen pour l'instant."],
+  ["Quels sites sont pris en charge ?", "En France : Leboncoin, La Centrale et AutoScout24. En Allemagne : mobile.de, AutoScout24 et Kleinanzeigen."],
   ["Est-ce un conseil d'achat ?", "Non. AutoVerdict est un outil d'aide à la décision. Faites toujours vos propres vérifications avant d'acheter."],
 ];
 
@@ -367,13 +369,14 @@ export default function Home() {
     const timer = window.setTimeout(() => ctrl.abort(), 120000);
     try {
       // Kleinanzeigen range ses modèles par série (« 3er Reihe ») : le titre est plus précis.
+      // Le marché des comparables suit celui de l'annonce (France ou Allemagne).
       const fromKlein = cand.source === "kleinanzeigen";
       const r = await fetch(`${API}/market-value`, {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
         body: JSON.stringify({
           marque: cand.marque || null, modele: fromKlein ? null : cand.modele || null, titre: cand.titre,
           annee: cand.annee, km: cand.km, carburant: cand.carburant, puissance_kw: cand.puissance_kw,
-          prix_eur: cand.prix_eur, url: cand.url,
+          prix_eur: cand.prix_eur, url: cand.url, marche: marketOf(cand.source),
         }),
       });
       const data = await r.json().catch(() => null);
@@ -490,11 +493,11 @@ export default function Home() {
             <div className="lc-hero-l">
               <span className="lc-chip mono">bilan noté sur 20 en une minute</span>
               <h1 className="lc-h1">Le verdict<br />sur une voiture,<br />avant de l'acheter.</h1>
-              <p className="lc-lead">Collez le lien d'une annonce allemande. On note la mécanique, le prix et les risques, et on calcule le coût réel une fois la voiture en France.</p>
+              <p className="lc-lead">Collez le lien d'une annonce française ou allemande. On identifie le moteur, on note la mécanique, le prix et les risques, et on calcule le coût réel une fois la voiture en France.</p>
               <UrlForm url={url} setUrl={setUrl} onSubmit={analyse} loading={loading} inputRef={inputRef} showExample />
               {loading
                 ? <p className="lc-status mono" aria-live="polite">lecture de l'annonce, puis calcul du bilan<i /></p>
-                : <p className="lc-small">Gratuit, sans inscription. Fonctionne avec mobile.de, AutoScout24 et Kleinanzeigen.</p>}
+                : <p className="lc-small">Gratuit, sans inscription. Fonctionne avec Leboncoin, La Centrale, AutoScout24, mobile.de et Kleinanzeigen.</p>}
               {err && <ErrorBox err={err} />}
             </div>
             <div className="lc-cells" aria-hidden="true">
@@ -521,7 +524,7 @@ export default function Home() {
             <div className="lc-win dark">
               <div className="lc-bar"><i style={{ background: "#FF5F57" }} /><i style={{ background: "#FEBC2E" }} /><i style={{ background: "#28C840" }} /><span>bilan.autoverdict</span></div>
               <div className="lc-win-body">
-                <Report c={shown} animate market={market} />
+                <Report c={shown} animate market={market} engineAI />
                 <button className="lc-btn light" style={{ marginTop: 36 }} onClick={() => { setC(null); setMarket(undefined); setUrl(""); window.scrollTo({ top: 0, behavior: "smooth" }); inputRef.current?.focus(); }}>
                   Analyser une autre annonce<span className="kbd">A</span>
                 </button>
@@ -532,6 +535,8 @@ export default function Home() {
 
         <p className="lc-cap mono">annonces et barèmes analysés</p>
         <div className="lc-logos">
+          <div style={{ fontWeight: 700 }}>Leboncoin</div>
+          <div style={{ fontWeight: 600, letterSpacing: "-.4px" }}>La Centrale</div>
           <div style={{ fontWeight: 700 }}>mobile.de</div>
           <div style={{ fontWeight: 600, letterSpacing: "-.8px" }}>AutoScout24</div>
           <div style={{ fontWeight: 500 }}>Kleinanzeigen</div>
@@ -556,7 +561,7 @@ export default function Home() {
           <div className="lc-feat-h">
             <span className="n">01</span>
             <h2>Collez le lien de l'annonce</h2>
-            <p>Copiez l'adresse de l'annonce sur mobile.de, AutoScout24 ou Kleinanzeigen et collez-la ici. Pas de compte, pas de formulaire à remplir.</p>
+            <p>Copiez l'adresse de l'annonce sur Leboncoin, La Centrale, AutoScout24, mobile.de ou Kleinanzeigen et collez-la ici. Pas de compte, pas de formulaire à remplir.</p>
           </div>
           <div className="lc-win">
             <div className="lc-bar"><i style={{ background: "#FF5F57" }} /><i style={{ background: "#FEBC2E" }} /><i style={{ background: "#28C840" }} /><span>autoverdict</span></div>
@@ -625,7 +630,7 @@ export default function Home() {
           <div className="lc-grid-in">
             <h2>D'où viennent<br />les notes</h2>
             <div className="lc-flow">
-              <div className="lc-node in">Votre annonce<br />mobile.de<br />AutoScout24<br />Kleinanzeigen</div>
+              <div className="lc-node in">Votre annonce<br />Leboncoin<br />La Centrale<br />AutoScout24<br />mobile.de<br />Kleinanzeigen</div>
               <div className="lc-link" />
               <div className="lc-node mid">
                 <div className="box"><Mark /><strong>{BRAND}</strong><em>MOTEUR D'ANALYSE</em></div>

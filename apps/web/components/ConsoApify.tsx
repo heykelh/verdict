@@ -1,5 +1,5 @@
 "use client";
-// Bouton flottant de l'admin : consommation Apify du mois, ce qu'il reste, projection,
+// Bouton flottant de l'admin : consommation Apify du jour et du mois, ce qu'il reste, projection,
 // facture estimée, détail par poste et par acteur, conseil (réduire ou augmenter).
 import { useState } from "react";
 
@@ -16,6 +16,10 @@ interface Conso {
   actors: { id: string; name: string; usd: number; runs: number; failed?: number }[];
   runs_total?: number;
   runs_failed?: number;
+  today?: {
+    date: string; usd: number; runs: number; failed: number; running: number; yesterday_usd: number;
+    actors: { id: string; name: string; usd: number; runs: number; failed?: number }[];
+  };
   fetched_at: string;
   error?: string;
 }
@@ -121,9 +125,20 @@ export default function ConsoApify() {
                 Cycle du {data.cycle_start ? day(data.cycle_start) : "?"} au {data.cycle_end ? day(data.cycle_end) : "?"} · {a.daysLeft} jour{a.daysLeft > 1 ? "s" : ""} restant{a.daysLeft > 1 ? "s" : ""}
               </div>
 
-              <div className="cx-big">
-                <span>{usd(data.used_usd)}</span>
-                <small>dépensés en tout ce mois-ci</small>
+              <div className="cx-tops">
+                <div className="cx-big cx-today">
+                  <span>{usd(data.today?.usd ?? 0)}</span>
+                  <small>
+                    aujourd'hui{data.today ? ` · ${data.today.runs} exécution${data.today.runs > 1 ? "s" : ""}` : ""}
+                    {data.today?.running ? ` · ${data.today.running} en cours` : ""}
+                    {data.today?.failed ? ` · ${data.today.failed} en échec` : ""}
+                  </small>
+                  {data.today && <em>hier : {usd(data.today.yesterday_usd)}</em>}
+                </div>
+                <div className="cx-big">
+                  <span>{usd(data.used_usd)}</span>
+                  <small>dépensés en tout ce mois-ci</small>
+                </div>
               </div>
 
               <div className="cx-bar">
@@ -147,14 +162,35 @@ export default function ConsoApify() {
 
               <p className="cx-advice" style={{ borderColor: COLORS[a.tone] }}>{a.advice}</p>
 
+              {data.today && data.today.actors.length > 0 && (
+                <>
+                  <h4>Aujourd'hui, par acteur</h4>
+                  <table className="cx-table">
+                    <thead><tr><td>Acteur</td><td>Exécutions</td><td>Total</td></tr></thead>
+                    <tbody>
+                      {data.today.actors.map((x) => (
+                        <tr key={x.id}>
+                          <td>{x.name}</td>
+                          <td>{x.runs}{x.failed ? ` (${x.failed} échec${x.failed > 1 ? "s" : ""})` : ""}</td>
+                          <td>{usd(x.usd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+
               {data.daily.length > 0 && (
                 <>
                   <h4>Dépense par jour</h4>
                   <div className="cx-chart">
                     {data.daily.map((d) => (
-                      <i key={d.date} style={{ height: `${Math.max(2, (d.usd / maxDay) * 100)}%` }} title={`${day(d.date)} : ${usd(d.usd)}`} />
+                      <i key={d.date} className={d.date === data.today?.date ? "cx-now" : undefined}
+                        style={{ height: `${Math.max(2, (d.usd / maxDay) * 100)}%` }}
+                        title={`${day(d.date)} : ${usd(d.usd)}${d.date === data.today?.date ? " (aujourd'hui)" : ""}`} />
                     ))}
                   </div>
+                  <div className="cx-legend" style={{ marginTop: 4 }}>Barre orange : aujourd'hui. Le détail par jour d'Apify peut avoir quelques heures de retard ; le montant du jour en haut est calculé exécution par exécution.</div>
                 </>
               )}
 
@@ -215,6 +251,10 @@ const CSS = `
 .cx-head strong{font-size:16px}
 .cx-period{font-size:12.5px;color:#9AA8BA;margin-bottom:10px}
 .cx-ghost{height:30px;padding:0 12px;border-radius:7px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#fff;font:inherit;font-size:13px;cursor:pointer}
+.cx-tops{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cx-today span{color:#F2B63D!important}
+.cx-big em{display:block;font-style:normal;font-size:11.5px;color:#6F7E92}
+.cx-chart i.cx-now{background:#F2B63D}
 .cx-big span{display:block;font-family:'Cascadia Mono',ui-monospace,monospace;font-size:34px;letter-spacing:-.04em;color:#fff}
 .cx-big small{color:#9AA8BA}
 .cx-bar{position:relative;height:10px;border-radius:6px;background:#1E2B3D;margin:12px 0 4px;overflow:visible}

@@ -26,6 +26,8 @@ export interface Candidate {
   modele?: string | null;
   cout_pose_estime_eur?: number | null;
   date_annonce?: string | null;
+  // Texte de l'annonce (tronqué), transmis à l'analyse IA du moteur.
+  description?: string | null;
   risks: string[];
   score: number;
   // Détail de la note « bon plan » sur 100 (prix, etat, usage, fraicheur, transparence, vendeur).

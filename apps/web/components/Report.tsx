@@ -3,6 +3,9 @@ import { useRef, useState } from "react";
 import type { Candidate, MarketValue } from "@/lib/types";
 import { bilan, type Note } from "@/lib/scoring";
 import { PREUVE_LABEL, PREUVE_DETAIL, SOURCES_GENERALES, bestPreuve, type Source } from "@/lib/engines";
+import { CONFIANCE_LABEL } from "@/lib/powertrain";
+import { srcNom, isFr } from "@/lib/markets";
+import EngineAI, { type EngineAIInput } from "@/components/EngineAI";
 
 // État de l'estimation du prix de marché, lancée juste après l'analyse (annonces comparables en direct).
 export interface MarketState {
@@ -12,7 +15,6 @@ export interface MarketState {
 }
 
 const CONF_LABEL: Record<string, string> = { elevee: "confiance élevée", moyenne: "confiance moyenne", faible: "confiance faible" };
-const SRC_NOM: Record<string, string> = { mobile_de: "mobile.de", autoscout24: "AutoScout24", kleinanzeigen: "Kleinanzeigen" };
 
 const eur = (n: number | null | undefined) =>
   n === null || n === undefined ? "Non disponible" : Math.round(n).toLocaleString("fr-FR") + " €";
@@ -105,6 +107,8 @@ const CSS = `
 .rp-comps{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:6px;font-size:14px}
 .rp-comps a{color:var(--signal)}
 .rp-loading{color:var(--fog);font-style:italic}
+.rp-conf{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:2px 10px;margin-left:10px;vertical-align:2px;border:1px solid currentColor}
+.rp-conf.certaine{color:var(--good)} .rp-conf.elevee{color:var(--signal)} .rp-conf.probable{color:var(--mid)}
 .rp-method{color:var(--fog);font-size:14px;line-height:1.6;max-width:72ch;margin-top:56px;padding-top:22px;border-top:1px solid var(--line)}
 .rp-method p{margin:0 0 10px}
 @media (max-width:860px){
@@ -183,7 +187,9 @@ html body .rp{--line:#D3DAE3;--track:#E4E9EF;--panel:#F4F6F9;--chalk:#101823;--f
 .rp-srcs a::after,.rp-comps a::after{content:" — " attr(href);color:var(--fog);font-size:10.5px;word-break:break-all}
 `;
 
-export default function Report({ c, animate = true, market }: { c: Candidate; animate?: boolean; market?: MarketState }) {
+// engineAI : lance l'analyse IA du moteur (payante, une fois par voiture grâce au cache serveur).
+// Désactivée pour l'exemple de la page d'accueil, affiché à chaque visite.
+export default function Report({ c, animate = true, market, engineAI = false }: { c: Candidate; animate?: boolean; market?: MarketState; engineAI?: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const raw = bilan(c);
   const b = {
@@ -192,14 +198,36 @@ export default function Report({ c, animate = true, market }: { c: Candidate; an
     notes: raw.notes.map((n) => ({ ...n, detail: nb(n.detail) })),
   };
   const [done, setDone] = useState<Record<number, boolean>>({});
-  const checks = [
-    "Rapports de contrôle technique allemands (HU/TÜV) et carnet d'entretien obtenus.",
-    "Historique et VIN vérifiés (carVertical ou Histovec).",
-    "Essai routier fait, moteur démarré à froid.",
-    "Points de vigilance du moteur contrôlés par un mécanicien.",
-    "Identité du vendeur et carte grise (Fahrzeugbrief) vérifiées.",
-    "Aucun paiement avant d'avoir vu le véhicule et les documents.",
-  ];
+  const fr = isFr(c.source);
+  const checks = fr
+    ? [
+        "Procès-verbal du dernier contrôle technique (moins de 6 mois) et carnet d'entretien obtenus.",
+        "Historique vérifié sur Histovec (rapport officiel demandé au vendeur) et VIN contrôlé.",
+        "Essai routier fait, moteur démarré à froid.",
+        "Points de vigilance du moteur contrôlés par un mécanicien.",
+        "Identité du vendeur et carte grise vérifiées, certificat de non-gage obtenu.",
+        "Aucun paiement avant d'avoir vu le véhicule et les documents.",
+      ]
+    : [
+        "Rapports de contrôle technique allemands (HU/TÜV) et carnet d'entretien obtenus.",
+        "Historique et VIN vérifiés (carVertical ou Histovec).",
+        "Essai routier fait, moteur démarré à froid.",
+        "Points de vigilance du moteur contrôlés par un mécanicien.",
+        "Identité du vendeur et carte grise (Fahrzeugbrief) vérifiées.",
+        "Aucun paiement avant d'avoir vu le véhicule et les documents.",
+      ];
+  // Analyse IA de la motorisation : marque et modèle de l'annonce, déduction des règles comme piste.
+  const mo = raw.moteur;
+  const words = (c.titre || "").split(/\s+/).filter(Boolean);
+  const aiInput: EngineAIInput | null = (c.marque || words[0]) && (c.modele || words[1])
+    ? {
+        make: c.marque || words[0], model: c.modele || words[1], year: c.annee,
+        fuel: c.carburant || null, power_kw: c.puissance_kw || mo.kw || null,
+        power_ch: c.puissance_kw || mo.kw ? Math.round((c.puissance_kw || mo.kw || 0) / 0.7355) : null,
+        title: c.titre || null, description: c.description ? c.description.slice(0, 2500) : null,
+        hint: mo.label ? `${mo.label} (confiance ${mo.confiance ? CONFIANCE_LABEL[mo.confiance].toLowerCase() : "?"}) : ${mo.explication}` : null,
+      }
+    : null;
   const sticker = b.critair;
   const vehLine = [String(c.annee), km(c.km), c.carburant, c.puissance_kw ? `${c.puissance_kw} kW` : null]
     .filter(Boolean).join(", ");
@@ -305,7 +333,7 @@ export default function Report({ c, animate = true, market }: { c: Candidate; an
         </div>
       </div>
 
-      <h3 className="rp-h">Prix et coût une fois en France</h3>
+      <h3 className="rp-h">{fr ? "Prix et coût d'achat" : "Prix et coût une fois en France"}</h3>
       <dl className="rp-rows" style={{ marginTop: 18 }}>
         <div className="rp-row"><dt>Prix de l'annonce</dt><dd><b>{eur(c.prix_eur)}</b></dd></div>
         <div className="rp-row"><dt>Valeur de marché estimée</dt><dd>
@@ -337,17 +365,24 @@ export default function Report({ c, animate = true, market }: { c: Candidate; an
                 {mv.comparables.map((x, i) => (
                   <li key={i}>
                     {x.url ? <a href={x.url} target="_blank" rel="noopener noreferrer">{eurN(x.prix_eur)}</a> : <b>{eurN(x.prix_eur)}</b>}
-                    {" "}· {x.annee} · {x.km.toLocaleString("fr-FR")} km{x.puissance_kw ? ` · ${x.puissance_kw} kW` : ""} · {SRC_NOM[x.source] || x.source}
+                    {" "}· {x.annee} · {x.km.toLocaleString("fr-FR")} km{x.puissance_kw ? ` · ${x.puissance_kw} kW` : ""} · {srcNom(x.source)}
                   </li>
                 ))}
               </ul>
             </>
           )}
         </dd></div>
-        <div className="rp-row"><dt>Coût une fois immatriculée en France</dt><dd>
-          <b>{c.cout_pose_estime_eur ? `environ ${eur(c.cout_pose_estime_eur)}` : "Non disponible"}</b>
-          <span className="rp-sub">Prix d'achat, frais d'import (transport, quitus fiscal, carte grise) et malus écologique 2026 (CO2 et poids).</span>
-        </dd></div>
+        {fr ? (
+          <div className="rp-row"><dt>Coût d'achat</dt><dd>
+            <b>{c.cout_pose_estime_eur ? `environ ${eur(c.cout_pose_estime_eur)}` : eur(c.prix_eur)}</b>
+            <span className="rp-sub">Voiture déjà immatriculée en France : ni frais d'import ni malus à l'achat. Prévoir en plus la carte grise de changement de titulaire (selon la puissance fiscale et la région).</span>
+          </dd></div>
+        ) : (
+          <div className="rp-row"><dt>Coût une fois immatriculée en France</dt><dd>
+            <b>{c.cout_pose_estime_eur ? `environ ${eur(c.cout_pose_estime_eur)}` : "Non disponible"}</b>
+            <span className="rp-sub">Prix d'achat, frais d'import (transport, quitus fiscal, carte grise) et malus écologique 2026 (CO2 et poids).</span>
+          </dd></div>
+        )}
       </dl>
 
       {sticker && (
@@ -377,9 +412,20 @@ export default function Report({ c, animate = true, market }: { c: Candidate; an
       </dl>
 
       <h3 className="rp-h">Motorisation et fiabilité</h3>
-      {b.engines.length === 0 ? (
-        <p className="rp-hint">Le moteur n'a pas pu être identifié à partir du titre de l'annonce. Demandez au vendeur le code moteur (carte grise, carnet d'entretien) pour connaître ses problèmes connus.</p>
+      {mo.label ? (
+        <dl className="rp-rows" style={{ marginTop: 18 }}>
+          <div className="rp-row"><dt>Moteur déduit</dt><dd>
+            <b>{mo.label}</b>
+            {mo.confiance && <span className={`rp-conf ${mo.confiance}`}>Confiance {CONFIANCE_LABEL[mo.confiance].toLowerCase()}</span>}
+            <span className="rp-sub">{nb(mo.explication)}</span>
+            {mo.alternatives.length > 0 && <span className="rp-sub">Autres possibilités : {mo.alternatives.join(" · ")}.</span>}
+          </dd></div>
+        </dl>
       ) : (
+        <p className="rp-hint">{nb(mo.explication)} Demandez au vendeur le code moteur (carte grise, carnet d'entretien) pour connaître ses problèmes connus.</p>
+      )}
+      {engineAI && <EngineAI input={aiInput} />}
+      {b.engines.length > 0 && (
         <>
           <p className="rp-hint">Seuls les problèmes appuyés par une source publique sont retenus, pour l'année de cette voiture. Niveaux de preuve : {PREUVE_LABEL.officiel.toLowerCase()} ({PREUVE_DETAIL.officiel}), {PREUVE_LABEL.enquete.toLowerCase()}, {PREUVE_LABEL.retours.toLowerCase()}.</p>
           {b.engines.map((e) => (

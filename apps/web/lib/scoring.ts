@@ -2,7 +2,9 @@
 // Règle : une note sans données suffisantes vaut null ("Données insuffisantes"),
 // jamais un chiffre inventé.
 import type { Candidate } from "./types";
-import { matchEngines, enginePenalty, type EngineNote } from "./engines";
+import { enginePenalty, type EngineNote } from "./engines";
+import { identifyEngine, type Identification } from "./powertrain";
+import { isFr } from "./markets";
 import { mileageFlag, type MileageFlag } from "./checks";
 import { critAir, type CritAir } from "./critair";
 
@@ -27,6 +29,7 @@ export interface Bilan {
   vigilances: string[];
   questions: string[];
   engines: EngineNote[];
+  moteur: Identification;
   critair: CritAir | null;
   mileage: MileageFlag | null;
   kmAn: number | null;
@@ -61,7 +64,10 @@ const filled = (v: unknown) => v !== null && v !== undefined && v !== "";
 export function bilan(c: Candidate): Bilan {
   const year = new Date().getFullYear();
   const age = Math.max(0, year - (c.annee || year));
-  const engs = matchEngines(c.titre || "", c.annee);
+  // Moteur : code moteur, titre, puis déduction marque + modèle + année + carburant + puissance.
+  const moteur = identifyEngine(c);
+  const engs = moteur.engines;
+  const fr = isFr(c.source);
   const mf = mileageFlag(c);
   const ca = critAir(c.carburant, c.annee);
   const kmAn = c.km && age >= 1 ? Math.round(c.km / age) : null;
@@ -76,15 +82,20 @@ export function bilan(c: Candidate): Bilan {
   // Problème majeur reconnu officiellement -4, majeur -3, modéré -1,5 ; plafonné à -8.
   let m = 15;
   m -= Math.min(8, engs.reduce((s, e) => s + enginePenalty(e), 0));
+  // Moteur identifié avec assurance et sans problème documenté pour cette année : +1.
+  const sain = engs.length > 0 && moteur.confiance !== "probable" && engs.every((e) => e.problemes.length === 0);
+  if (sain) m += 1;
   if (c.has_damage) m -= 6;
   if (mf) m -= 2;
   if (age > 15) m -= 2; else if (age > 10) m -= 1;
   const meca: Note = {
     key: "meca", label: "Mécanique", value: clamp(m), verdict: "",
     detail: engs.length
-      ? `Problèmes documentés du moteur ${engs[0].label} pour cette année, âge, kilométrage et dommages déclarés.`
-      : "Moteur non identifié dans l'annonce : note fondée sur l'âge, le kilométrage et les dommages.",
-    partial: engs.length === 0,
+      ? `Moteur ${moteur.label || engs[0].label} (identification ${moteur.confiance === "certaine" ? "certaine" : moteur.confiance === "elevee" ? "très probable" : "probable"}) : problèmes documentés pour cette année, âge, kilométrage et dommages déclarés.`
+      : moteur.label
+        ? `Moteur ${moteur.label} déduit, sans fiche de fiabilité sourcée : note fondée sur l'âge, le kilométrage et les dommages.`
+        : "Moteur non identifié dans l'annonce : note fondée sur l'âge, le kilométrage et les dommages.",
+    partial: engs.length === 0 || moteur.confiance === "probable",
   };
 
   // Annonce : complétude et cohérence des informations.
@@ -218,7 +229,7 @@ export function bilan(c: Candidate): Bilan {
   if (engs[0]?.avantages[0]) forts.push(`${engs[0].label} : ${engs[0].avantages[0].toLowerCase()}.`);
   if (ca && (ca.classe === "0" || ca.classe === "1")) forts.push(`Crit'Air ${ca.classe}, peu exposé aux restrictions des ZFE.`);
   if (!mf && kmAn) forts.push("Kilométrage cohérent avec l'âge du véhicule.");
-  if (c.hu_ok === true) forts.push("Contrôle technique allemand (HU) à jour.");
+  if (c.hu_ok === true) forts.push(fr ? "Contrôle technique à jour." : "Contrôle technique allemand (HU) à jour.");
   if (filled(c.previous_owners) && (c.previous_owners as number) <= 2) {
     forts.push(c.previous_owners === 1 ? "Un seul propriétaire déclaré." : `${c.previous_owners} propriétaires déclarés.`);
   }
@@ -235,17 +246,22 @@ export function bilan(c: Candidate): Bilan {
 
   // Questions à poser au vendeur, tirées des points réellement pertinents.
   const questions: string[] = [];
+  if (!moteur.label || moteur.confiance === "probable") {
+    questions.push("Quelle est la motorisation exacte (cylindrée, puissance, code moteur sur la carte grise ou le carnet) ?");
+  }
   engs.forEach((e) => {
     if (e.questions?.length) e.questions.forEach((q) => questions.push(q));
     else questions.push(`Quels entretiens ont été faits sur ce moteur ${e.label}, et avez-vous les factures ?`);
   });
-  questions.push("Pouvez-vous m'envoyer les rapports de contrôle technique (HU/TÜV) et le carnet d'entretien ?");
+  questions.push(fr
+    ? "Pouvez-vous m'envoyer le dernier procès-verbal de contrôle technique et le carnet d'entretien ?"
+    : "Pouvez-vous m'envoyer les rapports de contrôle technique (HU/TÜV) et le carnet d'entretien ?");
   if (c.has_damage !== false) questions.push("Le véhicule a-t-il eu un accident ou une réparation de carrosserie ?");
   questions.push("Pouvez-vous justifier le kilométrage avec des factures ou des relevés ?");
 
   return {
     globale: g, verdict, resume, notes, evalues: rated.length,
     forts: forts.slice(0, 5), vigilances: vig.slice(0, 6), questions: questions.slice(0, 6),
-    engines: engs, critair: ca, mileage: mf, kmAn,
+    engines: engs, moteur, critair: ca, mileage: mf, kmAn,
   };
 }

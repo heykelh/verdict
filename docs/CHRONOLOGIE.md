@@ -10,17 +10,18 @@
 
 ## 1. Objectif
 
-Aider à décider avant d'acheter une voiture d'occasion en Allemagne pour la rouler ou la revendre en
-France. Deux produits dans le même repo :
+Aider à décider avant d'acheter une voiture d'occasion en Allemagne (import) ou en France, pour la
+rouler ou la revendre en France. Deux produits dans le même repo :
 
 | | **AutoVerdict** (public, à commercialiser) | **DJOHN MARA GAMOS** (outil interne) |
 |---|---|---|
 | Adresse | Accueil `/` | `/admin` (protégé par mot de passe) |
-| Rôle | Analyser UNE annonce depuis son lien : bilan noté sur 20 | Scanner mobile.de, AutoScout24, Kleinanzeigen avec filtres et classement |
+| Rôle | Analyser UNE annonce depuis son lien (sites allemands et, depuis le 23/11, français) : bilan noté sur 20 | Scanner les sites allemands (`/admin`) ou français (`/admin/france`) avec filtres et classement |
 | Public | Clients du SaaS (particuliers, puis pros) | L'équipe uniquement |
 
 Principe directeur : **déterminisme d'abord**. Tous les calculs (notes, malus, prix de marché,
-risques) sont faits en code explicable. L'IA, si elle intervient, ne sert qu'au langage.
+risques) sont faits en code explicable. L'IA ne calcule aucune note : depuis le 23/11, elle sert à
+**identifier et expliquer** la motorisation (recherche sur des fiches techniques, sources citées).
 Pas de donnée inventée : on affiche « données insuffisantes » ou « non communiqué ».
 
 ---
@@ -37,20 +38,25 @@ Pas de donnée inventée : on affiche « données insuffisantes » ou « non com
 
 ---
 
-## 3. Architecture actuelle (06/11/2026)
+## 3. Architecture actuelle (23/11/2026)
 
 Monorepo `verdict` (GitHub `heykelh/verdict`) :
-- `packages/core` — moteur Python : contrats Pydantic, malus 2026, mapping des annonces
-  (`adapters/scrapers/search_sources.py`), note « bon plan » sur 100 (`engine/ranking.py`), prix de marché
+- `packages/core` — moteur Python : contrats Pydantic, malus 2026, mapping des annonces des 6 sites
+  (`adapters/scrapers/search_sources.py`, marchés `de` et `fr`), note « bon plan » sur 100 (`engine/ranking.py`), prix de marché
   estimé à partir de comparables (`engine/market_value.py`), marque et modèle lus dans un titre (`vehicle_names.py`).
-- `apps/api` — FastAPI : `/health`, `/search`, `/evaluate-url`, `/market-value`, `/evaluate`, `/evaluate-from-url`,
-  `/evaluation/{id}`, `/comparables`, `/debug/raw`.
+- `apps/api` — FastAPI : `/health`, `/search`, `/evaluate-url`, `/market-value`, `/engine-ai`, `/evaluate`,
+  `/evaluate-from-url`, `/evaluation/{id}`, `/comparables`, `/debug/raw`. `verdict_api/engine_ai.py` : analyse IA
+  du moteur (Claude + recherche web limitée aux sites de fiches techniques, cache 30 jours).
 - `apps/web` — Next.js 15 / TypeScript :
   - `app/page.tsx` : accueil AutoVerdict (analyse de lien, bilan, prix de marché, boîte d'erreur détaillée) ;
-  - `app/admin/page.tsx` : outil DJOHN MARA GAMOS ; `components/PlaqueTool.tsx` + `app/admin/api/plaque/route.ts` : analyse par plaque ;
-  - `app/admin/layout.tsx` + `components/ConsoApify.tsx` + `app/admin/api/conso/route.ts` : bouton « Conso Apify » ;
-  - `components/Report.tsx` : bilan et rapport PDF ; `lib/scoring.ts` : notes sur 20 ; `lib/reference.ts` : base de prix ;
-  - `lib/engines.ts` (22 moteurs, problèmes sourcés par année), `lib/critair.ts`, `lib/checks.ts`, `lib/types.ts` ;
+  - `components/MarketSearch.tsx` : outil DJOHN MARA GAMOS, partagé par `app/admin/page.tsx` (Allemagne) et
+    `app/admin/france/page.tsx` (France), onglets entre les deux ; `lib/markets.ts` : sites et marchés ;
+  - `components/PlaqueTool.tsx` + `app/admin/api/conso/plaque/route.ts` : analyse par plaque ;
+  - `app/admin/layout.tsx` + `components/ConsoApify.tsx` + `app/admin/api/conso/route.ts` : bouton « Conso Apify » (jour et mois) ;
+  - `components/Report.tsx` : bilan et rapport PDF ; `components/EngineAI.tsx` : analyse IA du moteur dans le bilan ;
+    `lib/scoring.ts` : notes sur 20 ; `lib/reference.ts` : base de prix ;
+  - `lib/powertrain.ts` : déduction du moteur (code, titre, puis règles marque + modèle + année + carburant + puissance) ;
+  - `lib/engines.ts` (30 moteurs, problèmes sourcés par année), `lib/critair.ts`, `lib/checks.ts`, `lib/types.ts` ;
   - `middleware.ts` : identifiant et mot de passe sur tout le site.
 - `scripts/build_reference.py` + `.github/workflows/reference.yml` : base de prix de référence (lancement manuel).
 - `docs/` : CHRONOLOGIE (ce fichier), PLAN-ANALYSE, STRATEGIE, STRATEGIE-SAAS, CHANGELOG (historique).
@@ -62,8 +68,9 @@ Hébergement et services :
 |---|---|---|---|
 | Vercel | Site (Next.js) | Hobby (gratuit) | Redéploie **tout seul** à chaque push. **Passer en Pro (20 $/mois) avant toute vente ou pub** : l'offre gratuite interdit l'usage commercial |
 | Render | API (FastAPI) | Gratuit | Se met en veille ; **ne redéploie pas tout seul** : Manual Deploy après chaque changement de l'API ou du core |
-| Apify | Lecture des annonces (3 acteurs) | **Starter, 19 $/mois avec 19 $ d'usage inclus** (depuis le 02/11/2026) | Plafond de dépense à régler dans Billing > Limits |
-| GitHub | Code + automatisations | Gratuit | Repo encore public au 02/11 ; passage en privé décidé |
+| Apify | Lecture des annonces (5 acteurs, 6 sites) | **Starter, 19 $/mois avec 19 $ d'usage inclus** (depuis le 02/11/2026) | Plafond de dépense à régler dans Billing > Limits |
+| GitHub | Code + automatisations | Gratuit | Repo passé en privé, repassé en public le 23/11 pour la session (à refermer) |
+| Anthropic (API Claude) | Analyse IA du moteur (`/engine-ai`) | À l'usage | Environ 1 centime par recherche web + texte traité ; résultat gardé en cache 30 jours |
 | Google Play Console | Future appli Android | Compte développeur payé (25 $, paiement unique) | Compte personnel récent : 12 testeurs pendant 14 jours avant publication |
 
 Acteurs Apify utilisés :
@@ -71,9 +78,15 @@ Acteurs Apify utilisés :
 - AutoScout24 : `crawloop~autoscout24-scraper`
 - Kleinanzeigen : `apify~cheerio-scraper` avec notre extraction et un proxy résidentiel allemand
   (depuis le 05/11 ; avant : `benthepythondev~kleinanzeigen-autos-scraper`, en panne)
+- Leboncoin (depuis le 23/11) : `blackfalcondata~leboncoin-car-scraper` (environ 0,59 $ les 1 000 annonces,
+  proxy résidentiel français inclus, accepte un lien d'annonce)
+- La Centrale (depuis le 23/11) : `memo23~lacentrale-scraper` (environ 0,80 $ les 1 000 en mode carte ;
+  mode détail pour l'analyse d'un lien)
+- AutoScout24 France (depuis le 23/11) : même acteur que l'Allemagne, pays `F`
 
 Variables d'environnement :
-- Render : `VERDICT_APIFY_TOKEN`, `VERDICT_CORS_ORIGINS`.
+- Render : `VERDICT_APIFY_TOKEN`, `VERDICT_CORS_ORIGINS`, `ANTHROPIC_API_KEY` (serveur uniquement, analyse IA du moteur),
+  `ANTHROPIC_MODEL` (facultatif, `claude-sonnet-5-5` par défaut).
 - Vercel : `NEXT_PUBLIC_API_BASE`, `BASIC_AUTH_USER`, `BASIC_AUTH_PASS`, `APIFY_TOKEN` (serveur uniquement, pour le bouton Conso),
   `PLAQUE_API_TOKEN` (serveur uniquement, pour l'outil plaque).
 - GitHub (secrets Actions) : `VERDICT_APIFY_TOKEN`.
@@ -308,6 +321,55 @@ Variables d'environnement :
 - Reste à faire : vérifier que `BASIC_AUTH_USER` et `BASIC_AUTH_PASS` sont bien définis dans Vercel
   pour Production **avant** de pousser (sinon le site affiche « Site fermé »).
 
+### 23/11/2026 — Marché français, moteur déduit, analyse IA de la motorisation, conso du jour
+- **Rattrapage du lot du 06/11 jamais appliqué** : le dépôt s'arrêtait à `a820c6a` ; la conso du jour et
+  la déduction du moteur (`powertrain.ts`) sont refaites et livrées dans ce lot.
+- **Trois sources françaises** choisies : **Leboncoin** (premier site d'annonces auto en France,
+  particuliers et pros), **La Centrale** (référence des professionnels, badge « bonne affaire »),
+  **AutoScout24 France** (même acteur que l'Allemagne, pays `F`, aucun nouveau mapping). Écartés :
+  ParuVendu et Autosphere (moins de volume, pas d'acteur Apify fiable).
+- **Core** (`search_sources.py`) : marchés `MARKETS = {"de": [...], "fr": [...]}` ; lecture des formats
+  Leboncoin (objet `vehicle`, puissance DIN en ch convertie en kW) et La Centrale (`energy`,
+  `customerType`, puissance lue dans la version « 1.5 DCI 90 ») ; noms de modèles français
+  (BMW « 320 » → « Série 3 », Mercedes « A 180 » → « Classe A ») avec contrôle du modèle dans l'annonce ;
+  `fetch_ad()` lit une annonce de n'importe quel site ; recherche sans site précisé = Allemagne (inchangé).
+  Nouveau champ `description` (tronqué à 2 000 caractères, non renvoyé par `/search`).
+- **API** : `/search` accepte `market` ; `/evaluate-url` reconnaît leboncoin.fr, lacentrale.fr et
+  autoscout24.fr ; coût posé d'une annonce française = prix seul (déjà immatriculée : ni import ni
+  malus) ; `/market-value` compare une annonce française à des annonces françaises (Leboncoin + La Centrale).
+- **Admin** : `components/MarketSearch.tsx` partagé ; `/admin` = Allemagne, `/admin/france` = France,
+  onglets entre les deux ; même note bon plan sur 100 ; méthode et coût affiché adaptés au marché ;
+  ligne « Moteur : … (confiance …) » sur chaque annonce. Outil plaque : prix comparé aux annonces
+  françaises pour une plaque française.
+- **Moteur déduit** (`lib/powertrain.ts`), couche 1 sans IA : code moteur → mots-clés précis du titre →
+  règles marque + modèle + année + carburant + puissance (puissance lue dans le titre si absente).
+  Exemples vérifiés : Clio 4 essence 90 ch 2013 → 0.9 TCe H4Bt (certaine) ; 508 RXH → 2.0 DW10 (seule
+  motorisation) ; A 180 essence 2016 → 1.6 M270 ; A 180 essence 2020 → 1.33 M282 ; A 180 d → 1.5 OM607/608
+  (base K9K) ; 3008 BlueHDi 130 de 2019 → 1.5 BlueHDi DV5. Niveaux de confiance : certaine, élevée, probable.
+  `engines.ts` : 8 moteurs ajoutés (0.9 TCe, 1.0 TCe, M270, OM654, 2.0 DW10, 1.6 dCi R9M, 1.0 TSI, hybride
+  Toyota), sans « problème » faute de source publique (points de vigilance seulement) ; mot-clé « tce 90 »
+  retiré du 1.3 TCe (c'était le 0.9) ; « 180 cdi » et « cdi » retirés de l'OM651 ; un mot-clé générique
+  (« dci ») s'efface devant un plus précis (« 1.6 dci »).
+- **Bilan** (`scoring.ts`, `Report.tsx`) : section « Motorisation et fiabilité » avec moteur déduit, badge
+  de confiance et raisonnement ; +1 en Mécanique si moteur identifié sans problème documenté ; note
+  partielle si la confiance est seulement probable ; question « motorisation exacte » au vendeur si besoin ;
+  textes adaptés aux annonces françaises (contrôle technique, Histovec, non-gage, pas d'import).
+- **Analyse IA de la motorisation** (couche 2) : `/engine-ai` appelle Claude (`claude-sonnet-5-5`) avec
+  l'outil de recherche web limité à auto-data.net, fiches-auto.fr, ultimatespecs, L'argus, Caradisiac,
+  Auto Plus, Automobile Magazine, Wikipédia et ADAC (5 recherches au plus). Il raisonne par élimination
+  (carburant → famille, puissance → moteur, année → génération du moteur), renvoie un JSON (code moteur,
+  cylindrée, ch/kW, couple, distribution, génération, fiabilité de l'année, entretien, sources) et
+  reçoit la déduction des règles comme piste. Cache 30 jours (mémoire + disque). Affiché dans le bilan
+  (`EngineAI.tsx`) pour les vraies analyses seulement, pas pour l'exemple de l'accueil.
+- **Conso Apify du jour** : montant du jour (heure de Paris) calculé exécution par exécution, nombre
+  d'exécutions, en cours, en échec, montant de la veille, tableau « Aujourd'hui, par acteur », barre du
+  jour en orange dans le graphique.
+- Tests : 91 au vert (18 nouveaux : sources françaises, API France, analyse IA sans appel réseau).
+  Build Next.js vérifié ; captures de `/admin/france` et du bilan avec l'analyse IA simulée.
+- Reste à faire : `ANTHROPIC_API_KEY` dans Render ; Manual Deploy Render ; premier vrai lancement des
+  acteurs Leboncoin et La Centrale (autoriser les acteurs dans Apify si demandé, vérifier avec
+  `/debug/raw?source=leboncoin&make=Renault&model=Clio`) ; repasser le repo en privé.
+
 ---
 
 ## 5. Registre des décisions
@@ -336,6 +398,13 @@ Variables d'environnement :
 | 05/11 | Outil plaque réservé à l'admin, fournisseur SIV payant à la requête | Pas de donnée plaque gratuite et légale ; coût maîtrisé |
 | 06/11 | Tout le site sous mot de passe, fermé si les identifiants manquent | Prudence tant que le produit n'est pas lancé |
 | 06/11 | Couleurs de la note : vert, ocre, orange, rouge | Lecture immédiate de la qualité de l'affaire |
+| 23/11 | Sources françaises : Leboncoin, La Centrale, AutoScout24 France | Les deux plus gros volumes d'occasion en France + un site déjà branché (aucun nouveau mapping) |
+| 23/11 | Annonce française : comparables français, coût = prix seul | Voiture déjà immatriculée en France : pas d'import ni de malus à l'achat |
+| 23/11 | Un seul composant de recherche pour les deux marchés | Même méthode et même note pour l'Allemagne et la France, une seule source de vérité |
+| 23/11 | Moteur déduit par règles avant toute IA (code → titre → marque/année/carburant/puissance) | Gratuit, instantané, explicable ; confiance affichée |
+| 23/11 | L'IA identifie et explique le moteur, avec sources, mais ne calcule aucune note (précise la décision du 22/10) | Raisonnement de motoriste sur des fiches techniques ; les notes restent déterministes |
+| 23/11 | Recherche IA limitée à des sites de fiches techniques, résultat en cache 30 jours | Fiabilité des sources et coût maîtrisé (une voiture identique n'est payée qu'une fois) |
+| 23/11 | Pas d'analyse IA sur l'exemple de l'accueil | Il s'affiche à chaque visite : ce serait payer à chaque visiteur |
 
 ---
 
@@ -371,6 +440,11 @@ Variables d'environnement :
 | 05/11 | Cheerio Scraper : 403 « full-permission-actor-not-approved » | Acteur à autoriser dans la console Apify | Autorisation donnée dans Apify |
 | 05/11 | Attributs Kleinanzeigen mal lus | Le libellé est un nœud texte, pas une balise | Libellé = texte complet moins la valeur |
 | 05/11 | Rapport PDF aux couleurs de l'écran (texte pâle) | Le style du bilan, recopié dans la page, écrasait le style d'impression | Règle d'impression plus prioritaire, vérifiée sur un PDF généré |
+| 06→23/11 | Conso du jour et moteur déduit absents du site | Lot du 06/11 livré mais jamais collé ni poussé (`git status` vide, GitHub à `a820c6a`) | Lot refait et intégré à la livraison du 23/11 ; vérifier `git log -1` après chaque push |
+| 23/11 | Claude ne pouvait plus lire le repo | Repo passé en privé ; le connecteur GitHub ne voyait que les repos publics | Repo repassé en public le temps de la session (ou donner l'accès au repo à l'appli Claude dans GitHub) |
+| 23/11 | « TCe 90 » reconnu comme un 1.3 TCe | Mot-clé « tce 90 » rangé par erreur dans le 1.3 TCe | Mot-clé retiré, fiche 0.9 TCe créée |
+| 23/11 | « A 180 CDI » reconnu comme un OM651 | Mots-clés « 180 cdi » et « cdi » trop larges | Retirés ; règle Mercedes 160/180 diesel → 1.5 OM607/608 |
+| 23/11 | BMW « 320 » ou Mercedes « A 180 » introuvables sur les sites français | Ces sites classent par série (« Série 3 », « Classe A ») | Traduction du modèle + contrôle du modèle dans l'annonce |
 
 ---
 
@@ -385,12 +459,18 @@ Variables d'environnement :
 | Apple Developer | 99 $/an | Pas encore |
 | Noms de domaine (OVH) | autoverdicts.com + autoverdicts.fr, environ 10 à 15 €/an chacun | Achetés le 02/11 |
 | API plaque (SIV) | 0 $ (10 requêtes/mois) à 59 $/mois (600 requêtes), dépassement 0,01 $ | Pas encore souscrit |
+| API Claude (analyse IA du moteur) | À l'usage : 10 $ les 1 000 recherches web + texte traité, soit quelques centimes par voiture nouvelle ; 0 en cache | À activer (`ANTHROPIC_API_KEY` sur Render) |
 
 ---
 
-## 8. État actuel (06/11/2026)
+## 8. État actuel (23/11/2026)
 
 - Tout le site protégé par identifiant et mot de passe (depuis le 06/11).
+- Liens d'annonces français acceptés (Leboncoin, La Centrale, AutoScout24 France) en plus des allemands.
+- Moteur déduit par règles dans le bilan et l'admin ; analyse IA de la motorisation dans le bilan
+  (active dès que `ANTHROPIC_API_KEY` est sur Render).
+- `/admin/france` : recherche sur le marché français, mêmes filtres et même note que `/admin`.
+- Bouton Conso Apify : dépense du jour, de la veille et par acteur, en plus du mois.
 - Accueil AutoVerdict en ligne : analyse de lien, bilan sur 20, prix de marché estimé en direct avec
   fourchette et annonces comparables, fiabilité du moteur sourcée, rapport PDF, boîte d'erreur détaillée.
 - Outil plaque d'immatriculation dans `/admin` (en attente du jeton `PLAQUE_API_TOKEN`).
@@ -406,7 +486,7 @@ Variables d'environnement :
 - [x] Page Consommation dans l'admin
 - [x] Automatisations coûteuses arrêtées
 - [ ] Plafond de dépense réglé dans Apify (Billing > Limits)
-- [ ] Repo passé en privé
+- [ ] Repo passé en privé (fait puis repassé en public le 23/11 pour la session : à refermer)
 - [ ] Route serveur + clé secrète vers Render (fin des appels directs du navigateur)
 - [ ] Liste blanche des sites + CORS limité
 - [x] Domaine acheté (autoverdicts.com, autoverdicts.fr)
@@ -429,6 +509,10 @@ Variables d'environnement :
 - [x] Fiabilité des moteurs avec sources et niveaux de preuve (05/11).
 - [x] Outil plaque d'immatriculation dans l'admin (05/11, fournisseur à souscrire).
 - [ ] Étendre la base moteurs (Toyota, Hyundai/Kia essence, Opel, Volvo, Mazda...) avec sources.
+- [x] Marché français dans l'admin et liens français dans le bilan (23/11).
+- [x] Déduction du moteur par règles + analyse IA de la motorisation avec sources (23/11).
+- [ ] Reporter dans `engines.ts` (avec sources) les problèmes que l'analyse IA trouve souvent.
+- [ ] Ajouter les règles de déduction d'autres modèles courants (Opel avant 2019, Toyota essence, Hyundai/Kia essence, Fiat essence).
 - [ ] SEO : rendu serveur de l'accueil, calculateurs gratuits (malus, import, Crit'Air), pages moteurs.
 - [ ] Historique véhicule : lien carVertical / Histovec avec le VIN.
 - [ ] Appli Android (puis iOS), crédits via Google Play, vidéos récompensées.

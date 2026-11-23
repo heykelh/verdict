@@ -10,6 +10,8 @@
 //  - un problème ne s'applique qu'aux années indiquées (de / a) : un PureTech de 2023 n'est pas
 //    pénalisé pour la courroie des 2013-2022.
 // Sources vérifiées le 05/11/2026.
+// 23/11/2026 : moteurs ajoutés pour la déduction (lib/powertrain.ts) ; sans source publique,
+// ils n'ont que des points de vigilance, jamais de « problème ».
 
 export type Preuve = "officiel" | "enquete" | "retours";
 
@@ -134,7 +136,7 @@ export const ENGINES: Omit<EngineNote, "defauts">[] = [
   },
   {
     id: "hdi", label: "1.6 HDi / 1.6 TDCi (PSA-Ford, DV6)",
-    keywords: ["1.6 hdi", "1,6 hdi", "1.6 tdci", "1,6 tdci", " hdi"], codes: ["DV6"], production: [2004, 2018],
+    keywords: ["1.6 hdi", "1,6 hdi", "1.6 tdci", "1,6 tdci", "1.6 e-hdi", "1.6 bluehdi", "1,6 bluehdi"], codes: ["DV6"], production: [2004, 2018],
     avantages: ["Diesel éprouvé et économique"],
     problemes: [{
       texte: "Joints d'injecteurs qui fuient, calamine, crépine d'huile qui se bouche et turbo qui casse, surtout sur les premières séries",
@@ -234,8 +236,8 @@ export const ENGINES: Omit<EngineNote, "defauts">[] = [
     questions: ["Quelle est la consommation d'huile entre deux vidanges ?", "Le moteur a-t-il eu une intervention (segments, mise à jour) sous garantie ?"],
   },
   {
-    id: "tce13", label: "1.3 TCe (Renault / Mercedes, H5H)",
-    keywords: ["1.3 tce", "1,3 tce", "tce 140", "tce 160", "tce 130", "tce 90"], codes: ["H5H"], production: [2018, null],
+    id: "tce13", label: "1.3 TCe (Renault / Nissan / Mercedes, H5H / M282)",
+    keywords: ["1.3 tce", "1,3 tce", "tce 140", "tce 160", "tce 130", "tce 155"], codes: ["H5H", "M282"], production: [2018, null],
     avantages: ["Moderne et performant, codéveloppé avec Mercedes"],
     problemes: [],
     vigilance: ["Encrassement et consommation d'huile sur certains exemplaires"],
@@ -283,7 +285,7 @@ export const ENGINES: Omit<EngineNote, "defauts">[] = [
   },
   {
     id: "om651", label: "Diesel Mercedes OM651 (220 / 250 CDI)",
-    keywords: ["220 cdi", "250 cdi", "200 cdi", "180 cdi", "220cdi", "250cdi", " cdi", "220 d", "200 d", "250 d"],
+    keywords: ["220 cdi", "250 cdi", "200 cdi", "220cdi", "250cdi", "200cdi"],
     codes: ["OM651", "651"], production: [2008, 2019],
     avantages: ["Diesel costaud et sobre"],
     problemes: [{
@@ -331,6 +333,66 @@ export const ENGINES: Omit<EngineNote, "defauts">[] = [
     vigilance: ["Injecteurs sur les exemplaires très sollicités"],
     questions: ["Le filtre à particules et les injecteurs ont-ils déjà posé problème ?"],
   },
+  {
+    id: "tce09", label: "0.9 TCe (Renault / Dacia / Smart, H4Bt)",
+    keywords: ["0.9 tce", "0,9 tce", "tce 90", "tce90", "0.9 energy tce"], codes: ["H4B"], production: [2012, 2020],
+    avantages: ["3 cylindres turbo sobre, distribution par chaîne (pas de courroie à changer)"],
+    problemes: [],
+    vigilance: ["Turbo et consommation d'huile à surveiller sur les exemplaires mal entretenus", "Vidanges à respecter avec l'huile préconisée par Renault"],
+    questions: ["Les vidanges ont-elles été faites à temps, avec l'huile préconisée et des factures ?"],
+  },
+  {
+    id: "tce10", label: "1.0 TCe (Renault / Dacia / Nissan, H4D)",
+    keywords: ["1.0 tce", "1,0 tce", "tce 100", "tce 110", "1.0 tce 90"], codes: ["H4D"], production: [2019, null],
+    avantages: ["3 cylindres turbo récent, distribution par chaîne"],
+    problemes: [],
+    vigilance: ["Moteur récent : peu de recul sur la fiabilité à long terme"],
+  },
+  {
+    id: "m270", label: "Essence Mercedes M270 (1.6 / 2.0 turbo, Classe A / B / CLA / GLA 2012-2018)",
+    keywords: [], codes: ["M270", "270"], production: [2012, 2019],
+    avantages: ["4 cylindres turbo Mercedes, distribution par chaîne"],
+    problemes: [],
+    vigilance: ["Arbres à cames et chaîne : faire écouter le moteur à froid", "Boîte 7G-DCT : vérifier l'absence d'à-coups"],
+    questions: ["Le carnet d'entretien Mercedes est-il complet ?"],
+  },
+  {
+    id: "om654", label: "Diesel Mercedes OM654 (2.0, depuis 2016)",
+    keywords: [], codes: ["OM654", "654"], production: [2016, null],
+    avantages: ["Diesel moderne en aluminium, sobre et propre (Euro 6d)"],
+    problemes: [],
+    vigilance: ["Système AdBlue et filtre à particules à surveiller en usage urbain"],
+  },
+  {
+    id: "dw10", label: "2.0 HDi / BlueHDi (PSA, DW10)",
+    keywords: ["2.0 hdi", "2,0 hdi", "2.0 bluehdi", "2,0 bluehdi", "2.0 blue hdi", "hybrid4"], codes: ["DW10"], production: [1998, null],
+    avantages: ["Diesel robuste et endurant, réputé pour sa longévité"],
+    problemes: [],
+    vigilance: ["Vanne EGR, filtre à particules et volant moteur bimasse sur les plus kilométrés", "AdBlue sur les versions BlueHDi (depuis 2014)"],
+    questions: ["Le volant moteur et l'embrayage ont-ils été remplacés ?", "Le filtre à particules a-t-il déjà été nettoyé ou changé ?"],
+  },
+  {
+    id: "r9m", label: "1.6 dCi (Renault / Nissan, R9M)",
+    keywords: ["1.6 dci", "1,6 dci", "dci 130", "dci 160", "dci 150"], codes: ["R9M"], production: [2011, null],
+    avantages: ["Diesel sobre et plus robuste que le 1.5 dCi, distribution par chaîne"],
+    problemes: [],
+    vigilance: ["Vanne EGR et filtre à particules en usage urbain"],
+  },
+  {
+    id: "ea211", label: "1.0 TSI / 1.0 MPI (VAG, EA211 3 cylindres)",
+    keywords: ["1.0 tsi", "1.0tsi", "1,0 tsi", "1.0 tfsi", "1.0 mpi"], production: [2014, null],
+    avantages: ["3 cylindres sobre, distribution par courroie à longue durée"],
+    problemes: [],
+    vigilance: ["Courroie de distribution à remplacer selon le plan d'entretien"],
+  },
+  {
+    id: "toyotahybrid", label: "Hybride Toyota (système HSD, 1.5 / 1.8 / 2.0 / 2.5)",
+    keywords: ["hybrid synergy", "hsd"], production: [1997, null],
+    avantages: ["Motorisation hybride parmi les plus fiables du marché (boîte à train épicycloïdal, pas d'embrayage)"],
+    problemes: [],
+    vigilance: ["État de la batterie hybride (bilan de santé chez Toyota) sur les plus anciennes"],
+    questions: ["Avez-vous un bilan de santé de la batterie hybride (contrôle Toyota) ?"],
+  },
 ];
 
 const inYears = (y: number | undefined, de?: number, a?: number | null) =>
@@ -345,10 +407,21 @@ export function matchEngines(title: string, annee?: number | null, codeMoteur?: 
   const t = " " + (title || "").toLowerCase().replace(/\s+/g, " ") + " ";
   const code = (codeMoteur || "").toUpperCase();
   const y = annee || undefined;
-  const found = ENGINES.filter((e) => {
+  // Mot-clé le plus long trouvé pour chaque moteur : « 1.6 dci » est plus précis que « dci ».
+  const hit = new Map<string, string>();
+  let found = ENGINES.filter((e) => {
     if (y && e.production && !inYears(y, e.production[0] - 1, e.production[1] === null ? null : e.production[1] + 1)) return false;
     if (code && e.codes?.some((c) => code.includes(c))) return true;
-    return e.keywords.some((k) => t.includes(k));
+    const ks = e.keywords.filter((k) => t.includes(k)).sort((a, b) => b.length - a.length);
+    if (ks.length) hit.set(e.id, ks[0]);
+    return ks.length > 0;
+  });
+  // Un moteur trouvé seulement par un mot-clé contenu dans celui d'un autre est écarté
+  // (« bluehdi » générique quand « 1.5 bluehdi » est trouvé).
+  found = found.filter((e) => {
+    const k = hit.get(e.id);
+    if (!k) return true;
+    return !found.some((o) => o.id !== e.id && (hit.get(o.id) || "").length > k.length && (hit.get(o.id) || "").includes(k.trim()));
   });
   // Un code moteur reconnu est plus sûr qu'un mot du titre : il passe en premier.
   found.sort((a, b) => Number(!!(code && b.codes?.some((c) => code.includes(c)))) - Number(!!(code && a.codes?.some((c) => code.includes(c)))));
@@ -356,6 +429,18 @@ export function matchEngines(title: string, annee?: number | null, codeMoteur?: 
     const problemes = e.problemes.filter((p) => inYears(y, p.de, p.a));
     return { ...e, problemes, defauts: problemes.filter((p) => p.gravite === "majeur").map((p) => p.texte) };
   });
+}
+
+/** Fiches moteur par identifiant (moteur déduit par lib/powertrain.ts), problèmes filtrés par année. */
+export function enginesByIds(ids: string[], annee?: number | null): EngineNote[] {
+  const y = annee || undefined;
+  return ids
+    .map((id) => ENGINES.find((e) => e.id === id))
+    .filter((e): e is Omit<EngineNote, "defauts"> => !!e)
+    .map((e) => {
+      const problemes = e.problemes.filter((p) => inYears(y, p.de, p.a));
+      return { ...e, problemes, defauts: problemes.filter((p) => p.gravite === "majeur").map((p) => p.texte) };
+    });
 }
 
 /** Points retirés à la note mécanique (sur 20) pour un moteur. */

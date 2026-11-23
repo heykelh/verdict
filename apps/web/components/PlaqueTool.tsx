@@ -2,10 +2,12 @@
 // Outil interne Djohn Mara Gamos : analyse d'une voiture à partir de sa plaque d'immatriculation.
 // 1. identification (marque, modèle, version, code moteur, puissance, date de 1re immatriculation) via /admin/api/plaque ;
 // 2. fiabilité du moteur pour cette année, avec sources ;
-// 3. prix de marché estimé sur les annonces allemandes comparables (/market-value), si le kilométrage est saisi.
+// 3. prix de marché estimé sur des annonces comparables (/market-value), si le kilométrage est saisi :
+//    annonces françaises (Leboncoin, La Centrale) pour une plaque française, allemandes sinon.
 import { useState } from "react";
 import type { MarketValue } from "@/lib/types";
-import { matchEngines, bestPreuve, PREUVE_LABEL } from "@/lib/engines";
+import { bestPreuve, PREUVE_LABEL } from "@/lib/engines";
+import { identifyEngine, CONFIANCE_LABEL } from "@/lib/powertrain";
 
 const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 const INK = "#17140d", SAND = "#efe7cf", GOLD = "#efa808";
@@ -64,6 +66,7 @@ export default function PlaqueTool() {
         body: JSON.stringify({
           titre: [v.marque, v.modele, v.version].filter(Boolean).join(" "),
           annee: v.annee, km, carburant: v.carburant, puissance_kw: v.puissance_kw, prix_eur: num(prixS),
+          marche: pays === "DE" ? "de" : "fr",
         }),
       });
       const d2 = await r2.json().catch(() => null);
@@ -76,7 +79,14 @@ export default function PlaqueTool() {
     }
   }
 
-  const engs = veh ? matchEngines([veh.marque, veh.modele, veh.version].filter(Boolean).join(" "), veh.annee, veh.code_moteur) : [];
+  const moteur = veh && veh.annee
+    ? identifyEngine({
+        titre: [veh.marque, veh.modele, veh.version].filter(Boolean).join(" "), annee: veh.annee,
+        marque: veh.marque, modele: veh.modele, carburant: veh.carburant, puissance_kw: veh.puissance_kw,
+      }, veh.code_moteur)
+    : null;
+  const engs = moteur?.engines || [];
+  const marcheFr = pays !== "DE";
   const busy = step !== "";
 
   return (
@@ -98,7 +108,7 @@ export default function PlaqueTool() {
           borderRadius: 3, fontFamily: '"Anton", sans-serif', letterSpacing: 0.8, textTransform: "uppercase", fontSize: 14,
           cursor: busy ? "default" : "pointer", boxShadow: "3px 3px 0 rgba(0,0,0,0.4)",
         }}>{step === "plaque" ? "Lecture de la plaque..." : step === "prix" ? "Calcul du prix..." : "Analyser la plaque"}</button>
-        <span style={hint}>Chaque plaque lue est decomptee du forfait du fournisseur. Le prix utilise les annonces allemandes (mobile.de, AutoScout24) : 30 a 60 s.</span>
+        <span style={hint}>Chaque plaque lue est decomptee du forfait du fournisseur. Le prix utilise les annonces {pays === "DE" ? "allemandes (mobile.de, AutoScout24)" : "francaises (Leboncoin, La Centrale)"} : 30 a 60 s.</span>
       </div>
       {err && <p style={{ color: RED, fontWeight: 700, margin: "10px 0 0" }}>{err}</p>}
 
@@ -113,6 +123,12 @@ export default function PlaqueTool() {
           <div style={{ fontSize: 12, marginTop: 3 }}>Code moteur : <b>{veh.code_moteur || "non communique"}</b>{veh.vin ? ` · VIN ${veh.vin}` : ""}</div>
 
           <div style={{ ...label, marginTop: 14 }}>Fiabilite du moteur</div>
+          {moteur?.label && (
+            <div style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.45 }}>
+              Moteur : <b>{moteur.label}</b>{moteur.confiance ? ` (confiance ${CONFIANCE_LABEL[moteur.confiance].toLowerCase()})` : ""}
+              <div style={hint}>{moteur.explication}</div>
+            </div>
+          )}
           {engs.length === 0 && <div style={hint}>Moteur absent de notre base de problemes documentes (ce n'est pas une garantie de fiabilite).</div>}
           {engs.map((e) => (
             <div key={e.id} style={{ marginTop: 8, background: "#e4d9b5", border: `1px solid ${INK}`, borderRadius: 3, padding: "8px 10px", fontSize: 12.5, lineHeight: 1.5 }}>
@@ -140,7 +156,7 @@ export default function PlaqueTool() {
             </div>
           ))}
 
-          <div style={{ ...label, marginTop: 14 }}>Prix du marche (annonces allemandes)</div>
+          <div style={{ ...label, marginTop: 14 }}>Prix du marche (annonces {marcheFr ? "francaises" : "allemandes"})</div>
           {!mv && !num(kmS) && <div style={hint}>Saisissez le kilometrage pour estimer le prix.</div>}
           {mv && mv.estimate === null && <div style={hint}>{mv.message} ({mv.criteres})</div>}
           {mv && mv.estimate !== null && (
@@ -152,7 +168,7 @@ export default function PlaqueTool() {
                   Prix demande {mv.ecart_pct <= 0 ? `${Math.abs(Math.round(mv.ecart_pct))} % sous le marche` : `${Math.round(mv.ecart_pct)} % au-dessus du marche`}
                 </div>
               )}
-              <div style={hint}>Criteres : {mv.criteres}. Prix allemands, hors frais d'import et malus.</div>
+              <div style={hint}>Criteres : {mv.criteres}. {marcheFr ? "Prix d'annonces francaises." : "Prix allemands, hors frais d'import et malus."}</div>
               {mv.comparables && mv.comparables.length > 0 && (
                 <div style={{ marginTop: 6 }}>
                   {mv.comparables.map((x, i) => (

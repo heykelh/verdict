@@ -64,6 +64,8 @@ class Candidate(BaseModel):
     marque: str | None = None
     modele: str | None = None
     date_annonce: str | None = None
+    # Texte de l'annonce (tronque) : sert a l'identification du moteur, pas a la note.
+    description: str | None = None
     cout_pose_estime_eur: float | None = None
     risks: list[str] = Field(default_factory=list)
     score: float = 0.0

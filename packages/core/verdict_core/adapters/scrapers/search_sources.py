@@ -1,10 +1,14 @@
-"""Recherche multi-sites allemands via Apify, en parallele. Filtres min/max
-(prix, annee, km), fraicheur, carburants. Mapping commun gerant le camelCase
-(mobile.de, AutoScout24) et le snake_case (Kleinanzeigen)."""
+"""Recherche multi-sites via Apify, en parallele, sur deux marches :
+ - Allemagne : mobile.de, AutoScout24 (.de), Kleinanzeigen ;
+ - France (depuis le 23/11/2026) : Leboncoin, La Centrale, AutoScout24 (.fr).
+Filtres min/max (prix, annee, km), fraicheur, carburants. Mapping commun gerant le
+camelCase (mobile.de, AutoScout24), le snake_case (Kleinanzeigen) et les formats
+francais (Leboncoin : objet `vehicle`, La Centrale : `energy`, `customerType`...)."""
 from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from urllib.error import HTTPError
@@ -22,7 +26,24 @@ _ACTORS = {
     # L'acteur tiers « benthepythondev~kleinanzeigen-autos-scraper » plantait a chaque recherche
     # (« The main function of the Actor threw an exception ») : remplace le 05/11/2026.
     "kleinanzeigen": _CHEERIO,
+    # France. Choix du 23/11/2026 : Leboncoin (premier site d'annonces auto en France, particuliers
+    # et pros), La Centrale (reference des professionnels), AutoScout24 France (meme acteur que l'Allemagne).
+    "leboncoin": "blackfalcondata~leboncoin-car-scraper",
+    "lacentrale": "memo23~lacentrale-scraper",
+    "autoscout24_fr": "crawloop~autoscout24-scraper",
 }
+
+# Sites par marche. Sans precision, une recherche porte sur l'Allemagne (comportement historique).
+MARKETS = {
+    "de": ["mobile_de", "autoscout24", "kleinanzeigen"],
+    "fr": ["leboncoin", "lacentrale", "autoscout24_fr"],
+}
+FR_SOURCES = frozenset(MARKETS["fr"])
+
+
+def market_of(source: str | None) -> str:
+    """Marche d'une source : « fr » pour les sites francais, « de » sinon."""
+    return "fr" if source in FR_SOURCES else "de"
 
 # Au-dela, une annonce est ecartee : une bonne affaire ne reste pas en ligne un mois.
 MAX_AGE_DAYS = 30
@@ -95,9 +116,92 @@ def _cheerio_payload(start_urls: list[dict], max_requests: int) -> dict:
     }
 
 
-_FUEL = {"diesel": "diesel", "benzin": "essence", "petrol": "essence",
-         "elektro": "electrique", "electric": "electrique",
-         "hybrid": "hybride", "lpg": "gpl"}
+_FUEL = {"diesel": "diesel", "benzin": "essence", "petrol": "essence", "gasoline": "essence",
+         "essence": "essence", "super": "essence",
+         "elektro": "electrique", "electric": "electrique", "electrique": "electrique",
+         "électrique": "electrique",
+         "hybrid": "hybride", "hybride": "hybride", "plugin_hybrid": "hybride",
+         "hybride rechargeable": "hybride", "lpg": "gpl", "gpl": "gpl"}
+
+# Puissance en chevaux dans un libelle de version francais : « 1.5 DCI 90 », « PURETECH 130 », « 110 ch ».
+_CH_RE = re.compile(
+    r"\b(?:tce|dci|blue ?dci|puretech|bluehdi|e-?hdi|hdi|tdi|tsi|tfsi|vti|thp|ecoblue|ecoboost|"
+    r"crdi|multijet|cdi|sce|gdi|t-?gdi|dig-?t|mpi|kw)\s*(\d{2,3})\b|\b(\d{2,3})\s*(?:ch|cv|hp)\b",
+    re.I)
+
+
+def _ch_from_text(*texts) -> int | None:
+    for t in texts:
+        if not t:
+            continue
+        m = _CH_RE.search(str(t))
+        if m:
+            n = int(m.group(1) or m.group(2))
+            if 40 <= n <= 700:
+                return n
+    return None
+
+
+def _kw(ch) -> int | None:
+    return round(ch * 0.7355) if ch else None
+
+
+def _norm_leboncoin(item: dict) -> dict:
+    """Annonce Leboncoin (acteur blackfalcondata) -> champs compris par to_candidate."""
+    v = item.get("vehicle") if isinstance(item.get("vehicle"), dict) else {}
+    imgs = item.get("imageUrls") or item.get("largeUrls") or []
+    ch = _num(v.get("dinPower")) or _ch_from_text(v.get("version"), item.get("title"))
+    st = str(item.get("sellerType") or "").lower()
+    return {
+        "url": item.get("url"), "title": item.get("title"),
+        "price": item.get("price"), "mileageKm": v.get("mileageKm"),
+        "firstRegistration": v.get("firstRegistrationDate") or v.get("year"),
+        "fuelType": v.get("fuel"), "powerKw": _kw(ch),
+        "make": v.get("brand"), "model": v.get("model"),
+        "sellerType": "dealer" if st in ("pro", "professional", "dealer") else ("private" if st else None),
+        "image": imgs[0] if isinstance(imgs, list) and imgs else None,
+        "publishedAt": item.get("publishedAt") or item.get("indexDate"),
+        "description": item.get("description"),
+    }
+
+
+_LC_BADGE = {  # badge prix La Centrale -> echelle commune (affiche pour information seulement)
+    "VERY_GOOD_DEAL": "VERY_GOOD_PRICE", "GOOD_DEAL": "GOOD_PRICE", "FAIR_DEAL": "FAIR_PRICE",
+    "EQUITABLE_DEAL": "FAIR_PRICE", "BAD_DEAL": "HIGH_PRICE", "VERY_BAD_DEAL": "VERY_HIGH_PRICE",
+}
+
+
+def _norm_lacentrale(item: dict) -> dict:
+    """Annonce La Centrale (acteur memo23, mode carte ou detail) -> champs compris par to_candidate."""
+    titre = item.get("title") or " ".join(
+        str(x) for x in (item.get("make"), item.get("model"), item.get("version")) if x)
+    ch = _num(item.get("powerDin")) or _ch_from_text(item.get("version"), item.get("motorization"), titre)
+    ct = str(item.get("customerType") or item.get("sellerType") or "").upper()
+    imgs = item.get("images")
+    img = item.get("photoUrl") or (imgs[0] if isinstance(imgs, list) and imgs and isinstance(imgs[0], str) else None)
+    owners = item.get("nbOfOwners")
+    return {
+        "url": item.get("url"), "title": titre, "price": item.get("priceCurrent") or item.get("price"),
+        "mileageKm": item.get("mileage"), "firstRegistration": item.get("year"),
+        "fuelType": item.get("energy"), "powerKw": _kw(ch),
+        "make": item.get("make"), "model": item.get("model"),
+        "sellerType": "dealer" if ct.startswith("PRO") else ("private" if ct else None),
+        "image": img, "publishedAt": item.get("firstOnlineDate"),
+        "priceRating": _LC_BADGE.get(str(item.get("goodDealBadge") or "").upper()),
+        "previousOwners": owners if owners not in (None, "") else (1 if item.get("firstHand") is True else None),
+        "description": item.get("description"),
+    }
+
+
+def normalize(source: str, item: dict) -> dict:
+    """Ramene une annonce brute au format commun. Sans effet pour les sites allemands."""
+    if not isinstance(item, dict):
+        return item
+    if source == "leboncoin":
+        return _norm_leboncoin(item)
+    if source == "lacentrale":
+        return _norm_lacentrale(item)
+    return item
 
 # Date de publication de l'annonce : noms de champs connus, du plus fiable au plus vague.
 _DATE_KEYS = ("createdAt", "created_at", "creationDate", "creation_date", "createdDate",
@@ -306,6 +410,7 @@ def to_candidate(item: dict) -> Candidate | None:
         co2_gkm=_num(_first(item, "co2Emissions", "co2")),
         masse_kg=_num(_first(item, "weightKg", "weight")),
         marque=marque, modele=modele,
+        description=(_text(item.get("description")) or None) and str(item["description"])[:2000],
     )
 
 
@@ -322,15 +427,45 @@ def _payload(source, make, model, f: dict, max_results):
         if f.get("days_max"):
             p["postedWithinDays"] = f["days_max"]
         return p
-    if source == "autoscout24":
-        # AutoScout24 : Allemagne, occasions, les plus recentes d'abord (sinon surtout des annonces anciennes).
+    if source in ("autoscout24", "autoscout24_fr"):
+        # AutoScout24 : Allemagne (D) ou France (F), occasions, les plus recentes d'abord
+        # (sinon surtout des annonces anciennes).
+        pays = "F" if source == "autoscout24_fr" else "D"
         p = {**base, "make": make, "model": model, "maxItems": max_results,
-             "countries": ["D"], "condition": "used", "sortBy": "newest"}
+             "countries": [pays], "condition": "used", "sortBy": "newest"}
         if f.get("price_min"): p["minPrice"] = f["price_min"]
         if f.get("price_max"): p["maxPrice"] = f["price_max"]
         if f.get("year_min"): p["minYear"] = f["year_min"]
         if f.get("year_max"): p["maxYear"] = f["year_max"]
         if f.get("km_max"): p["maxMileage"] = f["km_max"]
+        return p
+    if source == "leboncoin":
+        # Leboncoin : marque en majuscules, modele au format « MARQUE_Modele » ; toute la France,
+        # particuliers et pros, les plus recentes d'abord. Proxy residentiel francais par defaut.
+        p = {"make": make.upper(), "model": f"{make.upper()}_{fr_model(make, model)}", "maxResults": max_results,
+             "sort": "time", "ownerType": "all", "excludeEmptyFields": True}
+        if f.get("price_min"): p["priceMin"] = f["price_min"]
+        if f.get("price_max"): p["priceMax"] = f["price_max"]
+        if f.get("year_min"): p["yearMin"] = f["year_min"]
+        if f.get("year_max"): p["yearMax"] = f["year_max"]
+        if f.get("km_min"): p["mileageMin"] = f["km_min"]
+        if f.get("km_max"): p["mileageMax"] = f["km_max"]
+        return p
+    if source == "lacentrale":
+        # La Centrale : mode « carte » (rapide, ~0,80 $ les 1 000), les plus recentes d'abord.
+        p = {"make": _ascii(make).upper().replace("-BENZ", ""), "model": _ascii(fr_model(make, model)).upper(),
+             "maxItems": max_results,
+             "sortPreset": "newestListings", "scrapeDetailPages": False}
+        if f.get("price_min"): p["priceMin"] = f["price_min"]
+        if f.get("price_max"): p["priceMax"] = f["price_max"]
+        if f.get("year_min"): p["yearMin"] = f["year_min"]
+        if f.get("year_max"): p["yearMax"] = f["year_max"]
+        if f.get("km_min"): p["mileageMin"] = f["km_min"]
+        if f.get("km_max"): p["mileageMax"] = f["km_max"]
+        en = {"diesel": ["DIESEL"], "essence": ["ESSENCE"], "electrique": ["ELECTRIC"],
+              "hybride": ["HYBRID", "PLUGIN_HYBRID"], "gpl": ["LPG"]}
+        if f.get("fuel_types"):
+            p["energies"] = [e for ft in f["fuel_types"] for e in en.get(ft, [])]
         return p
     # Kleinanzeigen : on ouvre la page de resultats filtree du site (marque, modele, prix, annee, km),
     # puis chaque annonce trouvee, avec notre propre extraction (Cheerio Scraper).
@@ -381,7 +516,32 @@ def klein_search_url(make: str, model: str, f: dict, page: int = 1) -> str:
 
 
 def _norm(s: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+    s = unicodedata.normalize("NFD", (s or "").lower())
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]", "", s)
+
+
+def fr_model(make: str, model: str) -> str:
+    """Nom du modele tel que les sites francais le rangent : BMW « 320 » -> « Série 3 »,
+    Mercedes « A 180 » -> « Classe A ». Les autres modeles gardent leur nom."""
+    mk = _slug(make)
+    m = (model or "").strip()
+    if mk == "bmw":
+        g = re.fullmatch(r"([1-8])\d{2}[a-z]*", m.lower())
+        if g:
+            return f"Série {g.group(1)}"
+    if mk in ("mercedes_benz", "mercedes"):
+        g = re.fullmatch(r"([A-Za-z])\s?-?\d{2,3}[a-z]*", m)
+        if g:
+            return f"Classe {g.group(1).upper()}"
+        if m.upper() in ("V", "C", "E", "S", "A", "B", "G"):
+            return f"Classe {m.upper()}"
+    return m
+
+
+def _ascii(s: str) -> str:
+    s = unicodedata.normalize("NFD", s or "")
+    return "".join(ch for ch in s if not unicodedata.combining(ch))
 
 
 def model_in_title(make: str, model: str, title: str | None) -> bool:
@@ -404,6 +564,21 @@ def model_in_title(make: str, model: str, title: str | None) -> bool:
             if tok == cls and i + 1 < len(toks) and (toks[i + 1] == "klasse" or toks[i + 1][0].isdigit()):
                 return True
     return False
+
+
+def fetch_ad(source: str, url: str) -> list[dict]:
+    """Lit UNE annonce a partir de son lien, deja ramenee au format commun."""
+    if source == "kleinanzeigen":
+        return fetch_kleinanzeigen_ad(url)
+    if source == "leboncoin":
+        payload = {"startUrls": [{"url": url}], "maxResults": 1}
+    elif source == "lacentrale":
+        # Mode detail : description, puissance, proprietaires, historique de prix.
+        payload = {"startUrls": [{"url": url}], "scrapeDetailPages": True, "maxItems": 1}
+    else:
+        payload = {"proxyConfiguration": {"useApifyProxy": True}, "startUrls": [{"url": url}]}
+    items = _post(_ACTORS[source], payload)
+    return [normalize(source, it) for it in items if isinstance(it, dict)]
 
 
 def fetch_kleinanzeigen_ad(url: str) -> list[dict]:
@@ -456,6 +631,7 @@ def search_source(source, make, model, f: dict | None = None,
     if source == "kleinanzeigen":
         max_results = int(max_results * KLEIN_BOOST)
     items = _post(_ACTORS[source], _payload(source, make, model, f, max_results))
+    items = [normalize(source, it) for it in items]
     if source == "kleinanzeigen":
         # On ne garde que les pages d'annonce (pas les pages de resultats), dans la limite demandee.
         items = [it for it in items if isinstance(it, dict) and it.get("title")][:max_results]
@@ -477,7 +653,11 @@ def search_source(source, make, model, f: dict | None = None,
         if not _passes(c, f):
             st["hors_criteres"] += 1
             continue
-        if source == "kleinanzeigen" and not model_in_title(make, model, c.titre):
+        # Modele verifie dans le titre : Kleinanzeigen et Leboncoin (recherche large), et les sites
+        # francais quand le modele demande est plus precis que leur classement (« 320 » dans « Série 3 »).
+        check = source in ("kleinanzeigen", "leboncoin") or (
+            source in FR_SOURCES and fr_model(make, model) != model)
+        if check and not model_in_title(make, model, f"{c.modele or ''} {c.titre or ''}"):
             st["hors_criteres"] += 1                 # autre modele de la meme marque
             continue
         c.source = source
@@ -495,7 +675,7 @@ def search_all(make, model, f: dict | None = None, max_results: int = 40,
                sources=None, stats: dict | None = None,
                max_age_days: int | None = MAX_AGE_DAYS) -> tuple[list[Candidate], dict]:
     f = f or {}
-    sources = sources or list(_ACTORS)
+    sources = sources or MARKETS["de"]
     allc: list[Candidate] = []
     errors: dict = {}
     with ThreadPoolExecutor(max_workers=max(1, len(sources))) as ex:

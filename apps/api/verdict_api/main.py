@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from verdict_core.adapters.scrapers import apify_mobile
 from verdict_core.adapters.scrapers.registry import gather
 from verdict_core.adapters.scrapers.search_sources import (
-    _ACTORS, _payload, _post, _posted_date, fetch_kleinanzeigen_ad, search_all, to_candidate,
+    _ACTORS, FR_SOURCES, MARKETS, _payload, _post, _posted_date, fetch_ad, market_of, search_all,
+    to_candidate,
 )
 from verdict_core.cli import run
 from verdict_core.config import settings
@@ -23,12 +24,15 @@ from verdict_core.reference import load_malus
 from verdict_core.repository import FileEvaluationRepository
 from verdict_core.vehicle_names import guess_make_model
 
+from .engine_ai import router as engine_ai_router
 from .schemas import (
     CarSearchRequest, ComparablesRequest, ComparablesResponse,
     EvaluateFromUrlRequest, EvaluationRequest, EvaluationResponse,
 )
 
 app = FastAPI(title="VERDICT API", version="0.1")
+# Identification IA du moteur (/engine-ai) : cle ANTHROPIC_API_KEY cote serveur uniquement.
+app.include_router(engine_ai_router)
 
 _origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
@@ -40,7 +44,11 @@ _IMPORT_FEES_DEFAUT = 1640.0
 
 
 def _cout_pose(c) -> float:
-    """Cout estime une fois pose en France : prix + malus 2026 + frais d'import."""
+    """Cout estime une fois pose en France : prix + malus 2026 + frais d'import.
+    Annonce francaise : voiture deja immatriculee en France, ni import ni malus (prix seul ;
+    la carte grise de changement de titulaire depend de la region et de la puissance fiscale)."""
+    if c.source in FR_SOURCES:
+        return round(c.prix_eur, 2)
     malus = load_malus(2026)
     age = max(0, date.today().year - c.annee)
     mco2 = refaction_occasion(malus_co2(c.co2_gkm, malus["co2"]).montant_eur, age, malus["occasion"])
@@ -52,10 +60,16 @@ def _source_from_url(url: str) -> str | None:
     h = urlparse(url).netloc.lower()
     if "mobile.de" in h:
         return "mobile_de"
+    if "autoscout24.fr" in h:
+        return "autoscout24_fr"
     if "autoscout24" in h:
         return "autoscout24"
     if "kleinanzeigen" in h:
         return "kleinanzeigen"
+    if "leboncoin.fr" in h:
+        return "leboncoin"
+    if "lacentrale.fr" in h:
+        return "lacentrale"
     return None
 
 
@@ -94,8 +108,10 @@ def search_cars(req: CarSearchRequest):
             "fuel_types": req.fuel_types, "days_max": getattr(req, "days_max", None),
         }
         stats: dict = {}
+        # Sites coches, sinon tous ceux du marche demande (Allemagne par defaut).
+        sources = req.sources or MARKETS.get(req.market or "de", MARKETS["de"])
         cands, errors = search_all(req.make, req.model, f=f, max_results=pool,
-                                   sources=req.sources, stats=stats)
+                                   sources=sources, stats=stats)
         counts = dict(Counter(c.source for c in cands))
         ranked, _med = rank_candidates(cands)
         # Doublons entre sites (meme voiture) retires par le classement.
@@ -108,7 +124,7 @@ def search_cars(req: CarSearchRequest):
             st["dans_le_top"] = top.get(s, 0)
         for c in ranked:
             c.cout_pose_estime_eur = _cout_pose(c)
-        return {"count": len(ranked), "candidates": [c.model_dump() for c in ranked],
+        return {"count": len(ranked), "candidates": [c.model_dump(exclude={"description"}) for c in ranked],
                 "errors": errors, "counts": counts, "funnel": stats}
     except Exception as e:
         return {"count": 0, "candidates": [], "counts": {}, "funnel": {},
@@ -121,14 +137,11 @@ def evaluate_url(req: dict):
     url = (req.get("url") or "").strip()
     src = _source_from_url(url)
     if not src:
-        raise HTTPException(status_code=400, detail="Lien non reconnu (mobile.de, AutoScout24 ou Kleinanzeigen attendu).")
+        raise HTTPException(status_code=400, detail=(
+            "Lien non reconnu (Leboncoin, La Centrale, AutoScout24, mobile.de ou Kleinanzeigen attendu)."))
     try:
-        if src == "kleinanzeigen":
-            # L'acteur de recherche Kleinanzeigen n'accepte pas les liens d'annonce.
-            items = fetch_kleinanzeigen_ad(url)
-        else:
-            payload = {"proxyConfiguration": {"useApifyProxy": True}, "startUrls": [{"url": url}]}
-            items = _post(_ACTORS[src], payload)
+        # Une annonce, lue par l'acteur du site et ramenee au format commun.
+        items = fetch_ad(src, url)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Recuperation impossible : {e}")
     if not items:
@@ -148,7 +161,8 @@ def evaluate_url(req: dict):
 
 # Sites interroges pour les comparables : les deux qui filtrent marque et modele a la source
 # (Kleinanzeigen demande un proxy residentiel, plus cher, pour un apport faible ici).
-_MARKET_SOURCES = ["autoscout24", "mobile_de"]
+# Annonce francaise : comparables francais (Leboncoin, premier volume, et La Centrale).
+_MARKET_SOURCES = {"de": ["autoscout24", "mobile_de"], "fr": ["leboncoin", "lacentrale"]}
 _MARKET_PER_SITE = 20
 
 
@@ -157,7 +171,8 @@ def market_value(req: dict):
     """Prix de marche estime d'une voiture a partir d'annonces comparables lues en direct.
 
     Corps : annee et km obligatoires ; marque et modele, ou a defaut le titre de l'annonce ;
-    carburant, puissance_kw, prix_eur et url facultatifs (le prix sert a calculer l'ecart)."""
+    carburant, puissance_kw, prix_eur et url facultatifs (le prix sert a calculer l'ecart) ;
+    marche (« fr » ou « de ») facultatif, sinon deduit du lien de l'annonce (Allemagne par defaut)."""
     try:
         annee = int(req.get("annee") or 0)
         km = int(req.get("km") or 0)
@@ -173,8 +188,11 @@ def market_value(req: dict):
         raise HTTPException(status_code=422, detail="Marque ou modele non reconnus dans le titre de l'annonce.")
 
     f = {"year_min": annee - 2, "year_max": annee + 2, "km_max": int(km * 1.6 + 20000)}
+    marche = req.get("marche")
+    if marche not in _MARKET_SOURCES:
+        marche = market_of(_source_from_url(req.get("url") or "") or req.get("source"))
     comps, errors = search_all(make, model, f=f, max_results=_MARKET_PER_SITE,
-                               sources=_MARKET_SOURCES, max_age_days=None)
+                               sources=_MARKET_SOURCES[marche], max_age_days=None)
     prix = float(req.get("prix_eur") or 0)
     target = Candidate(
         source="cible", url=req.get("url"), titre=req.get("titre"), prix_eur=prix or 1.0,
@@ -182,7 +200,7 @@ def market_value(req: dict):
         puissance_kw=int(req["puissance_kw"]) if req.get("puissance_kw") else None,
     )
     v = estimate_value(target, comps)
-    base = {"marque": make, "modele": model, "lues": len(comps), "errors": errors,
+    base = {"marque": make, "modele": model, "lues": len(comps), "errors": errors, "marche": marche,
             "criteres": f"{make} {model}, {annee - 2} a {annee + 2}, jusqu'a {f['km_max']:,} km".replace(",", " ")}
     if v is None:
         return {**base, "estimate": None, "n": len({(c.annee, c.km, c.prix_eur) for c in comps}),

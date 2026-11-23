@@ -1,4 +1,4 @@
-// Consommation Apify du mois, lue côté serveur (le jeton n'est jamais envoyé au navigateur).
+// Consommation Apify du mois et du jour, lue côté serveur (le jeton n'est jamais envoyé au navigateur).
 // Adresse : /admin/api/conso, protégée par le même mot de passe que /admin (middleware).
 export const dynamic = "force-dynamic";
 
@@ -31,6 +31,10 @@ const SERVICES: [RegExp, string][] = [
   [/DATA_TRANSFER/, "Transfert de données"],
 ];
 const serviceLabel = (k: string) => SERVICES.find(([re]) => re.test(k))?.[1] || k;
+
+// Jour calendaire à Paris (AAAA-MM-JJ) : « aujourd'hui » commence à minuit heure française.
+const parisDay = (d: Date | string) =>
+  new Date(d).toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
 
 export async function GET() {
   const token = process.env.APIFY_TOKEN || process.env.VERDICT_APIFY_TOKEN;
@@ -71,12 +75,34 @@ export async function GET() {
     const byActor = new Map<string, { usd: number; runs: number; failed: number }>();
     let runsTotal = 0;
     let runsFailed = 0;
+    // Aujourd'hui (heure de Paris), exécution par exécution : coût, nombre, échecs, en cours, par acteur.
+    const today = parisDay(new Date());
+    const yesterday = parisDay(new Date(Date.now() - 86400000));
+    const todayByActor = new Map<string, { usd: number; runs: number; failed: number }>();
+    let todayUsd = 0, todayRuns = 0, todayFailed = 0, todayRunning = 0, yesterdayUsd = 0;
     try {
       const runs = await get("/actor-runs?desc=1&limit=1000", token);
       const items = Array.isArray(runs.items) ? runs.items : [];
       for (const it of items) {
         const o = obj(it);
-        if (start && String(o.startedAt || "") < start) continue;
+        const started = String(o.startedAt || "");
+        const cost = num(o.usageTotalUsd) ?? 0;
+        const failedRun = !!o.status && o.status !== "SUCCEEDED" && o.status !== "RUNNING" && o.status !== "READY";
+        if (started) {
+          const d = parisDay(started);
+          if (d === today) {
+            const aid = String(o.actId || "inconnu");
+            const t = todayByActor.get(aid) || { usd: 0, runs: 0, failed: 0 };
+            t.usd += cost; t.runs += 1; if (failedRun) t.failed += 1;
+            todayByActor.set(aid, t);
+            todayUsd += cost; todayRuns += 1;
+            if (failedRun) todayFailed += 1;
+            if (o.status === "RUNNING" || o.status === "READY") todayRunning += 1;
+          } else if (d === yesterday) {
+            yesterdayUsd += cost;
+          }
+        }
+        if (start && started < start) continue;
         const id = String(o.actId || "inconnu");
         const cur = byActor.get(id) || { usd: 0, runs: 0, failed: 0 };
         cur.usd += num(o.usageTotalUsd) ?? 0;
@@ -90,15 +116,23 @@ export async function GET() {
       }
     } catch { /* liste indisponible */ }
 
+    // Noms lisibles des acteurs (une seule lecture par acteur, partagée entre le mois et le jour).
+    const names = new Map<string, Promise<string>>();
+    const nameOf = (id: string) => {
+      if (!names.has(id)) {
+        names.set(id, get(`/acts/${id}`, token)
+          .then((a) => `${a.username || "?"}/${a.name || id}`)
+          .catch(() => id));
+      }
+      return names.get(id) as Promise<string>;
+    };
     const actors = await Promise.all(
-      [...byActor.entries()].sort((a, b) => b[1].usd - a[1].usd).slice(0, 10).map(async ([id, v]) => {
-        let name = id;
-        try {
-          const a = await get(`/acts/${id}`, token);
-          name = `${a.username || "?"}/${a.name || id}`;
-        } catch { /* nom indisponible */ }
-        return { id, name, usd: round2(v.usd), runs: v.runs, failed: v.failed };
-      }),
+      [...byActor.entries()].sort((a, b) => b[1].usd - a[1].usd).slice(0, 10).map(async ([id, v]) =>
+        ({ id, name: await nameOf(id), usd: round2(v.usd), runs: v.runs, failed: v.failed })),
+    );
+    const todayActors = await Promise.all(
+      [...todayByActor.entries()].sort((a, b) => b[1].usd - a[1].usd).map(async ([id, v]) =>
+        ({ id, name: await nameOf(id), usd: round2(v.usd), runs: v.runs, failed: v.failed })),
     );
 
     const used = num(obj(limits.current).monthlyUsageUsd) ?? totalUsage ?? 0;
@@ -115,6 +149,15 @@ export async function GET() {
       actors,
       runs_total: runsTotal,
       runs_failed: runsFailed,
+      today: {
+        date: today,
+        usd: round2(todayUsd),
+        runs: todayRuns,
+        failed: todayFailed,
+        running: todayRunning,
+        yesterday_usd: round2(yesterdayUsd),
+        actors: todayActors,
+      },
       fetched_at: new Date().toISOString(),
     });
   } catch (e) {
